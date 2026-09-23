@@ -129,9 +129,6 @@ a run. Proposed: TYPICAL, 400 days, for the 25 MVs named explicitly
 (`mv_list => NULL` means every MV in the database and needs privileges
 on all of them). Needs approval.
 
-## 5. Related, separate decision
-
-Raising Oracle's own retention (31 days) would keep `USER_MVREF_STATS` long
-enough to investigate the next incident:
-`DBMS_MVIEW_STATS.SET_MVREF_STATS_PARAMS(NULL, 'TYPICAL', 400)`. That is a
-database setting change; needs approval, and possibly the DBA.
+The same call raises the retention from 31 to 400 days, so the next
+incident can still be investigated months later - February's history was
+already purged when it was looked for.
