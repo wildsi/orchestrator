@@ -69,6 +69,19 @@ Read-only checks that would settle it, **each needs approval**:
 2. Per UNUSABLE MV, an emptiness probe that reads at most one row:
    `SELECT COUNT(*) FROM <mv> WHERE ROWNUM <= 1`.
 
+Emptiness probe results (one MV per run, each approved). `1` = has rows,
+which rules out an empty MV but not a partial one:
+- 2026-09-23 MV_00_JOIN_COUNTRY_ENA: 1
+- 2026-09-23 MV_00_JOIN_COUNTRY_PMC: 1
+- The other eight were not probed: the user confirmed (2026-09-23) that
+  every MV holds data.
+
+So **no UNUSABLE MV is empty**. What remains is the milder reading of
+UNUSABLE: the rows exist but may not form one consistent snapshot, e.g.
+a child built from its parent's previous contents (§2.1, point 2), or an
+author/country side resting on November 2025 data (§2.1, point 1). An
+ordered refresh clears both; nothing short of one does.
+
 Decision 2 in `CLAUDE.md` (`atomic_refresh=TRUE`) already avoids the
 truncate-first behaviour; this finding is evidence for it.
 
