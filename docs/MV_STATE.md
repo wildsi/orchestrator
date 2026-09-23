@@ -135,7 +135,6 @@ NEEDS_COMPILE on 02-08 13:48-13:51. None of that is in this table, so at
 least one other mechanism refreshed (or altered) MVs after 02-02. No MV
 carries a schedule that would explain it (§5), so a manual refresh is the
 simplest explanation left; the 02-08 invalidation is unexplained too.
-Check 2 above (emptiness probe) is still needed.
 
 ## 3. Refresh order (answers task 1.3)
 
