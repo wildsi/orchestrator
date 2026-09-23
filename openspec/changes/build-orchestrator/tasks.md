@@ -43,6 +43,10 @@ Nothing here has been started. Phases 0–2 touch no database.
 - [ ] 2.3 `src/refresh.py` — `DBMS_MVIEW.REFRESH` per MV in order,
       `atomic_refresh=TRUE`, per-MV timing and outcome captured. Fake
       `subprocess.run` in tests.
+      Outcome goes into the existing `MV_REFRESH_LOG`, extended as in
+      `docs/REFRESH_LOG.md` (STARTED/SKIPPED rows, rows before/after from
+      `USER_MVREF_STATS`, staleness after). Its §1 read-only check and
+      the ALTER need approval first.
 - [ ] 2.4 `src/dump.py` — once 1.1 is answered.
 - [ ] 2.5 `src/notify.py` — reuse the shape of
       `../epmc_pipeline/src/notifications.py`: two reports, two recipient

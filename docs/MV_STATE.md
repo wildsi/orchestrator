@@ -74,6 +74,56 @@ Read-only checks that would settle it, **each needs approval**:
 Decision 2 in `CLAUDE.md` (`atomic_refresh=TRUE`) already avoids the
 truncate-first behaviour; this finding is evidence for it.
 
+### 2.1 What `MV_REFRESH_LOG` records (read 2026-09-23, approved)
+
+Columns `LOG_ID, LOG_TIME, MV_NAME, STATUS, ERROR_MESSAGE, DURATION_SEC`.
+28 rows, two runs: 2026-01-30 (IDs 1-3, the three `MV_00_JOIN_*` only) and
+2026-02-02 (IDs 21-45, all 25 MVs). IDs 4-20 are missing - rows deleted,
+or a run that failed before logging; the table cannot say which. Whatever
+writes it is in the database, not in `Scripts/` (only the ENA
+`REFRESH_ALL_MVIEWS` was found there).
+
+**1. `MV_PMC_WITH_ANNOTATIONS_ALL_AUTHORS` failed**, in 0.02 s:
+`ORA-00942: table or view does not exist`. Its staleness is still IMPORT
+and its last refresh 2025-11-19, i.e. it has **never refreshed since it
+was imported**. `MV_00_JOIN_COUNTRY_PMC` reads it, and all eight level-2
+MVs read that, so the whole author/country side of the application rests
+on November 2025 data. All three masters (`N_PMC_REFERENCES`,
+`N_ANNOTATIONS`, `N_AUTHOR`) exist today; which one was missing on
+02-02 is not recorded.
+
+**2. The run went children before parents.** Against the order in §3:
+
+| child, log ID | refreshed before its parent(s), log ID |
+|---|---|
+| MV_00_JOIN_COUNTRY_PMC, 22 | MV_PMC_WITH_ANNOTATIONS_ALL_AUTHORS, 44 (failed) |
+| MV_00_JOIN_ENA_PMC, 23 | MV_PMC_WITH_ANNOTATIONS, 43 |
+| MV_ACC_SEC_LIT, 32 | MV_ACC_SEC_LIT_01, 37; _02, 38 |
+| MV_ACC_PRI_OR_SEC_LIT, 33 | MV_ACC_PRI_OR_SEC_LIT_01..03, 34-36 |
+
+Each of these children was therefore built from its parent's *previous*
+contents. Every entry says OK, so the log shows no failure behind the
+UNUSABLE state - only this ordering, which is a plausible route to it,
+not a proven one.
+
+**3. Timing (for task 1.4).** The 02-02 run took **13,640 s = 3.8 h**,
+sequential. Largest: MV_00_JOIN_PMC_LEFTJOIN 3,632 s, MV_01_USING_FROM_X_
+COUNTRIES 3,218 s, MV_01_PROVIDING_TO_Y_COUNTRIES 1,390 s,
+MV_01_JOIN_ENA_LEFTJOIN_LIT_COUNTRY 1,288 s. These are non-atomic figures
+(to be confirmed: the log does not record the refresh options); an atomic
+refresh deletes instead of truncating and will be slower.
+`LAST_REFRESH_DATE` matches the log's run start plus the cumulative
+durations (MV_00_JOIN_* at 06:41-06:43, MV_00_JOIN_PMC_LEFTJOIN done by
+07:45).
+
+**4. The log does not cover the later events.** `USER_MVIEWS` shows 12
+MVs last refreshed 2026-02-04 15:09 (all in the same minute despite
+multi-minute durations), MV_01_PROVIDING_TO_Y_COUNTRIES at 02-04 15:02,
+MV_01_USING_FROM_X_COUNTRIES at 02-10 08:35, and the 15 MVs went
+NEEDS_COMPILE on 02-08 13:48-13:51. None of that is in this table, so at
+least one other mechanism refreshed (or altered) MVs after 02-02. Check 2
+above (emptiness probe) is still needed.
+
 ## 3. Refresh order (answers task 1.3)
 
 Topological levels from `user_dependencies`
