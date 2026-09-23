@@ -127,7 +127,11 @@ retention 31 days. With NONE, Oracle records nothing in
 empty / lost-rows checks never fire; only the FRESH / VALID check guards
 a run. Proposed: TYPICAL, 400 days, for the 25 MVs named explicitly
 (`mv_list => NULL` means every MV in the database and needs privileges
-on all of them). Needs approval.
+on all of them).
+
+**Applied 2026-09-23** (approved, one call naming the 25 MVs):
+`USER_MVREF_STATS_PARAMS` now shows TYPICAL / 400 for all 25. Not yet
+seen in action: the next refresh should fill ROWS_BEFORE / ROWS_AFTER.
 
 The same call raises the retention from 31 to 400 days, so the next
 incident can still be investigated months later - February's history was

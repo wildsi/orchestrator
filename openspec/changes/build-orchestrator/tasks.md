@@ -98,8 +98,9 @@ Started 2026-09-23 with the refresh stage (2.1-2.3). Phases 0–2 touch no datab
       confirms IDs 4-20 were cache loss, not deletions. MV_NUM_PUB now
       holds 488,013. `USER_MVREF_STATS_PARAMS`: collection level **NONE**,
       retention 31 - so Oracle records no row counts and the empty /
-      lost-rows checks cannot fire until collection is TYPICAL (proposed
-      in `docs/REFRESH_LOG.md` §4). Left unticked until APEX is confirmed
+      lost-rows checks cannot fire until collection is TYPICAL. Set to
+      TYPICAL / 400 days for all 25 MVs the same day (approved,
+      `docs/REFRESH_LOG.md` §4). Left unticked until APEX is confirmed
       unaffected.
 - [ ] 3.3 Full chain on a quiet day, watched.
 - [ ] 3.4 Hand the schedule over; retire the two standalone sbatch triggers.
