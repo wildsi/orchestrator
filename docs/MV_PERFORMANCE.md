@@ -2,8 +2,9 @@
 
 > **PARKED 2026-09-23** (user: finish the epmc_pipeline switch-over first,
 > fix the front end another time). Where it stopped: P0b measured, the
-> 2,011 accessions with varying attributes not yet characterised (query
-> ready in the session notes below, §4 P0b). `MV_02_PIE_DSI_ORIGIN` exists,
+> 2,011 accessions with varying attributes not yet characterised - next
+> step: group `MV_00_JOIN_COUNTRY_ENA` by accession `HAVING COUNT(*) > 1`
+> and see which of country / date / code / taxid differ (§4 P0b). `MV_02_PIE_DSI_ORIGIN` exists,
 > filled, and read by nothing - drop it or use it when this resumes.
 > Nothing in APEX was changed.
 
