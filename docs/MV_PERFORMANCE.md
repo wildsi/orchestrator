@@ -3,8 +3,9 @@
 Analysis, 2026-09-23. **Nothing changed.** Sources: the read-only check of
 the same day (approved): database version and parameters, the SQL of
 every APEX region reading an MV, and column statistics of the five
-largest MVs. Plus `../epmc_pipeline/db_inventory/` (definitions, sizes,
-indexes). Chart-*series* SQL is still missing; see §6.
+largest MVs; then (second and third checks, approved) the INMEMORY
+attributes, `V$IM_SEGMENTS`, and the SQL of all 55 chart series of app
+1000. Plus `../epmc_pipeline/db_inventory/` (definitions, sizes, indexes).
 
 ## 1. What the database is
 
@@ -24,13 +25,23 @@ indexes). Chart-*series* SQL is still missing; see §6.
 
 ## 2. What the dashboard reads
 
-App **1000** (WiLDSi). Every chart region found reads
-**`MV_01_DSI_ALL_PUBLICATIONS`** (22.9M rows, 2.1 GB); page 10 also
-reads `MV_01_PROVIDING_TO_Y_COUNTRIES` / `MV_01_USING_FROM_X_COUNTRIES`
-(5.3M rows each). No region reads the 107M-row
-`MV_01_JOIN_ENA_LEFTJOIN_LIT_COUNTRY` or the other giants directly - they
-matter for refresh time, not page load (unless a chart series reads them,
-§6). App 102 is an MV admin page over `MV_REFRESH_LOG`.
+App **1000** (WiLDSi); app 102 is an MV admin page over `MV_REFRESH_LOG`
+(it shows the orchestrator's rows, including run 2's false-positive
+ERROR). Regions plus chart series, by MV read:
+
+| MV (rows) | read by |
+|---|---|
+| `MV_01_DSI_ALL_PUBLICATIONS` (22.9M) | 18 series + the reports and D3 charts of pages 6-10, 17 |
+| `MV_01_PROVIDING_TO_Y_COUNTRIES`, `MV_01_USING_FROM_X_COUNTRIES` (5.3M each) | **12 series** + the report of page 10 |
+| `MV_00_JOIN_COUNTRY_ENA` (36M) | 8 series, pages 5, 9, 18 |
+| `MV_01_JOIN_ENA_LEFTJOIN_LIT_COUNTRY` (107M) | 2 series (pages 5, 18): one pie chart |
+| `MV_01_JOIN_ENA_LEFTJOIN` (64.5M) | 2 series (pages 5, 18) |
+| `MV_00_JOIN_COUNTRY_PMC`, `MV_00_JOIN_PMC_LEFTJOIN` | 2 series each (pages 5, 18) |
+| `MV_COUNTRY_GRP_STATS` (plain table, 11.6k) | page 17 |
+| `ZZ_MV_HISTOGRAM_PAT_COUNT_MD5` | page 15 |
+
+**Neither `MV_PMC_WITH_ANNOTATIONS` nor `..._ALL_AUTHORS` is read by any
+region or series** - taking them out of the chain (§5) is safe.
 
 Every chart has the same shape:
 
@@ -65,20 +76,75 @@ Column statistics (`MV_01_DSI_ALL_PUBLICATIONS`, analysed 2026-05-27):
    publication-author-country combination is repeated per taxon. The
    charts never group by taxon. By how much it inflates the MV is not yet
    measured (P3).
-3. **Page 10's report joins two 5.3M-row MVs on `country` alone**
+3. **Page 5 / 18's three pie charts aggregate whole MVs with no filter
+   at all** - `MV_00_JOIN_COUNTRY_ENA` (36M), `MV_00_JOIN_COUNTRY_PMC`
+   and `MV_01_JOIN_ENA_LEFTJOIN_LIT_COUNTRY` (107M) - and each does it
+   twice (the chart rows, then an "Other" row from the same subquery).
+   Their result changes only when the MV is refreshed, yet it is
+   recomputed on every page view. The 107M-row MV, 6 GB on disk and 3 GB
+   in memory, exists for this one pie.
+4. **Page 10's report joins two 5.3M-row MVs on `country` alone**
    (`mv_01_using_from_x_countries a JOIN mv_01_providing_to_y_countries b
    ON a.country = b.country`). Per country that is every row of one side
    times every row of the other, before `COUNT(DISTINCT …)` - potentially
    billions of intermediate rows. The filters touch only one side, so the
-   join contributes nothing but an existence test. **This is the single
-   worst query found.**
+   join contributes nothing but an existence test. **The same query is
+   in all 12 chart series of page 10** (G77 / OECD / BRICS and their
+   trendlines, each once per dataset branch), so one page view runs it
+   six times. The worst query found.
+5. **Memory is not the problem.** `V$IM_SEGMENTS`: the dashboard MVs are
+   fully populated (`MV_01_DSI_ALL_PUBLICATIONS` COMPLETED, 0.38 GB in
+   memory, 0 not populated). The slowness is query shape, not disk.
 
 ## 4. Proposals, ranked by gain per risk
 
 Nothing below is applied. Each DB change needs approval; APEX edits are
 made in the App Builder by the app owner.
 
-### P1. Rewrite page 10's report (APEX edit only, no DDL)
+### P0. Precompute the three unfiltered pie charts (3 small MVs + APEX edit)
+
+One row per country instead of a scan of up to 107M rows per view:
+
+```sql
+CREATE MATERIALIZED VIEW mv_02_pie_dsi_origin REFRESH COMPLETE ON DEMAND AS
+SELECT simplified_name AS country_of_origin,
+       COUNT(DISTINCT accession) AS dsi_contribution, COUNT(*) AS n_rows
+FROM   mv_00_join_country_ena GROUP BY simplified_name;
+
+CREATE MATERIALIZED VIEW mv_02_pie_dsi_user REFRESH COMPLETE ON DEMAND AS
+SELECT simplified_name,
+       COUNT(DISTINCT idpmc) AS all_lit, COUNT(*) AS n_rows
+FROM   mv_00_join_country_pmc GROUP BY simplified_name;
+
+CREATE MATERIALIZED VIEW mv_02_pie_dsi_used_in_pub REFRESH COMPLETE ON DEMAND AS
+SELECT lit_country,
+       COUNT(DISTINCT accession) AS all_dsi, COUNT(*) AS n_rows
+FROM   mv_01_join_ena_leftjoin_lit_country GROUP BY lit_country;
+```
+
+The chart SQL keeps its shape and reads the summary; `n_rows` carries
+the `COUNT(*)` the percentages are built from, so the output is
+identical:
+
+```sql
+SELECT * FROM (SELECT country_of_origin, dsi_contribution,
+                      ROUND(n_rows / SUM(n_rows) OVER (), 4) AS percentages
+               FROM   mv_02_pie_dsi_origin)
+WHERE  percentages > 0.005
+UNION
+SELECT 'Other', 0, 1 - SUM(percentages)
+FROM  (SELECT ROUND(n_rows / SUM(n_rows) OVER (), 4) AS percentages
+       FROM   mv_02_pie_dsi_origin)
+WHERE  percentages > 0.005;
+```
+
+New names, so nothing breaks; the orchestrator's graph places them one
+level above their source automatically. Later, the 107M-row MV could be
+retired by computing its pie straight from its defining query at
+refresh time - saving ~21 min of refresh (1,288 s on 02-02), 6 GB of disk
+and 3 GB of column store.
+
+### P1. Rewrite page 10's report and its 12 series (APEX edit only, no DDL)
 
 Same result, no cross join: aggregate each MV on its own, keep the
 existence test as a semi-join.
@@ -103,32 +169,36 @@ Note the original's `y` subquery groups by `b.country` but counts
 `a.using_from_x_countries`; with the join on `a.country = b.country`
 those are the same country, so grouping by `a.country` is equivalent.
 Verify on one filter setting by comparing both result sets before
-switching.
+switching. The 12 series carry the same two subqueries plus
+`WHERE grp = '<group>'` (and trendline variants): the same rewrite
+applies to each.
 
-### P2. Make sure the dashboard MV is actually *in* memory
+Page 17 already reads a precomputed table, `MV_COUNTRY_GRP_STATS`, and is
+fast for it - but two cautions before copying that approach: (a) it is a
+**plain table**, not an MV, so nothing refreshes it (last analysed
+2026-05-20; who fills it is unknown); (b) it `SUM`s per-day counts,
+which over a multi-day range counts a country pair once per day, not
+once - not the same number as page 10's `COUNT(DISTINCT …)`.
 
-`MV_01_DSI_ALL_PUBLICATIONS` is already marked `INMEMORY PRIORITY LOW`.
-Marked is not populated: after every refresh the column store must be
-rebuilt, and with 18 objects competing at the same priority it may be
-partly or wholly on disk when users arrive - which would match "slow".
-First read `V$IM_SEGMENTS` (§6): `POPULATE_STATUS` and
-`BYTES_NOT_POPULATED` per object. If the chart MV is not fully
-populated, raise it above the rest:
+### P2. In-Memory: only page 10's two MVs are missing
 
-```sql
-ALTER MATERIALIZED VIEW mv_01_dsi_all_publications INMEMORY PRIORITY HIGH;
-```
-
-and mark page 10's two MVs, which are not in memory at all:
+Measured: `MV_01_DSI_ALL_PUBLICATIONS` and the other dashboard MVs are
+fully populated, so raising their priority gains nothing. Page 10's two
+MVs are not marked at all:
 
 ```sql
 ALTER MATERIALIZED VIEW mv_01_providing_to_y_countries INMEMORY PRIORITY HIGH;
 ALTER MATERIALIZED VIEW mv_01_using_from_x_countries   INMEMORY PRIORITY HIGH;
 ```
 
-No query or refresh changes; reversible (`PRIORITY LOW` / `NO INMEMORY`).
-The column store suits exactly this: full scans with filters and
-aggregates over a few columns. Needs approval; DBA confirms licence.
+Reversible (`NO INMEMORY`). Worth it only together with P1: marking
+them does not fix a cross join.
+
+**For the DBA, not ours to fix:** `V$IM_SEGMENTS` shows `PMC_REFERENCES`
+(7.3 GB populated, 0.69 GB missing) and `ENA_SEQUENCES` as **OUT OF
+MEMORY** - the shared 200 GB store (1,176 segments across all schemas)
+is full. The legacy `PMC_REFERENCES` (19 GB) competing for it will matter
+less once the legacy path is retired.
 
 ### P3. A slimmer chart MV without `TAXID` (new MV, then repoint charts)
 
@@ -197,24 +267,9 @@ effectively `last_name,first_name`, and "total authors" merges namesakes.
 every author count on the dashboard. The switch-over should reproduce the
 current hash exactly, and the fix be a separate, announced change.
 
-## 6. Still to read (read-only, needs approval)
+## 6. Checks done
 
-```sql
-Done 2026-09-23: the series SQL is in `DATA_SOURCE` (APEX 24.2 and 26.1
-are both installed); the INMEMORY list is in §1. Still to read:
-
-```sql
--- the chart-series SQL of the dashboard
-SELECT page_id, region_name, series_name, data_source_type,
-       DBMS_LOB.SUBSTR(data_source, 4000, 1) AS source
-FROM   apex_application_page_chart_s
-WHERE  application_id = 1000
-ORDER  BY page_id, region_name, series_seq;
--- is the In-Memory column store actually populated
-SELECT segment_name, populate_status, inmemory_priority,
-       ROUND(bytes / 1e9, 2) AS gb_on_disk,
-       ROUND(inmemory_size / 1e9, 2) AS gb_in_memory,
-       ROUND(bytes_not_populated / 1e9, 2) AS gb_not_populated
-FROM   v$im_segments ORDER BY bytes DESC;
-```
-```
+- 2026-09-23: version, parameters, APEX regions, column statistics.
+- 2026-09-23: INMEMORY attributes; chart-series column is `DATA_SOURCE`
+  (APEX 24.2 and 26.1 installed).
+- 2026-09-23: `V$IM_SEGMENTS` and the 55 chart series of app 1000.
