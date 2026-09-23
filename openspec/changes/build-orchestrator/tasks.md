@@ -105,7 +105,8 @@ Started 2026-09-23 with the refresh stage (2.1-2.3). Phases 0–2 touch no datab
       ERROR by the empty check - a false positive: at TYPICAL,
       INITIAL/FINAL_NUM_ROWS read 0 / 0 while the MV held its 1 row.
       Replaced by an emptiness probe before and after each refresh.
-      Left unticked until a run with the probe is clean and APEX is
+      Run 3 (approved): OK, has rows 1 -> 1, FRESH / VALID, 2.65 s - the
+      probe works on the real database. Left unticked until APEX is
       confirmed unaffected.
 - [ ] 3.3 Full chain on a quiet day, watched.
 - [ ] 3.4 Hand the schedule over; retire the two standalone sbatch triggers.
