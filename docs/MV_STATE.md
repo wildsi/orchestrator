@@ -28,10 +28,8 @@ staleness. Once compiled, it showed:
 | **UNUSABLE (10)** | MV_ACC_SEC_LIT_01, MV_ACC_SEC_LIT_02, MV_ACC_PRI_OR_SEC_LIT_02, MV_ACC_PRI_OR_SEC_LIT_03, MV_00_JOIN_COUNTRY_ENA, MV_00_JOIN_COUNTRY_PMC, MV_00_JOIN_ENA_PMC, MV_01_PROVIDING_TO_Y_COUNTRIES, MV_PMC_WITH_ANNOTATIONS, MV_01_IN_COUNTRY_USE |
 | IMPORT (1) | MV_PMC_WITH_ANNOTATIONS_ALL_AUTHORS (came in by import; last refresh 2025-11-19) |
 
-The 15 recompiled MVs show their state right after their own compile; the
-other 10 show the inventory taken just before the compiles. Recompiling a
-parent may have shifted a child's reported staleness since - re-run
-`../epmc_pipeline/tools/inspect_db.sh` (approval) for a single snapshot.
+Confirmed by a single inventory snapshot taken after all 15 compiles
+(2026-09-23, approved): every MV's staleness is as above.
 
 Oracle 19c reference, `ALL_MVIEWS.STALENESS`: STALE is "masters have
 changed" since a consistent refresh; **UNUSABLE is "not a read-consistent
@@ -120,9 +118,10 @@ MVs last refreshed 2026-02-04 15:09 (all in the same minute despite
 multi-minute durations), MV_01_PROVIDING_TO_Y_COUNTRIES at 02-04 15:02,
 MV_01_USING_FROM_X_COUNTRIES at 02-10 08:35, and the 15 MVs went
 NEEDS_COMPILE on 02-08 13:48-13:51. None of that is in this table, so at
-least one other mechanism refreshed (or altered) MVs after 02-02. The
-refreshes are explained by the self-scheduled MVs in §5; the 02-08
-invalidation is not. Check 2 above (emptiness probe) is still needed.
+least one other mechanism refreshed (or altered) MVs after 02-02. No MV
+carries a schedule that would explain it (§5), so a manual refresh is the
+simplest explanation left; the 02-08 invalidation is unexplained too.
+Check 2 above (emptiness probe) is still needed.
 
 ## 3. Refresh order (answers task 1.3)
 
@@ -158,26 +157,44 @@ values. Every MV is `REFRESH COMPLETE ON DEMAND`, so no refresh ever
 consumes or purges it; it grows with every ENA load. Relevant to task 1.2:
 either a fast refresh starts using it, or it is dead weight. Not touched.
 
-## 5. Some MVs refresh themselves every 7 days
+## 5. A weekly scheduler job, not self-refreshing MVs
 
-Per the user (2026-09-23): some MVs were created with
-`REFRESH … NEXT SYSDATE + 7`. Oracle gives such an MV a job and refreshes
-it automatically every 7 days, **outside any pipeline or orchestrator**;
-`REFRESH_MODE` still reads DEMAND, which is why the inventory never showed
-it. After 16 failed retries Oracle marks it BROKEN and stops trying.
+The starting point (user, 2026-09-23) was that some MVs had been created
+with `REFRESH … NEXT SYSDATE + 7`. Such an MV gets an implicit refresh
+group and refreshes itself on that clock, while `REFRESH_MODE` still reads
+DEMAND.
 
-This explains the refreshes on 02-04 and 02-10 that are not in
-`MV_REFRESH_LOG` (§2.1, point 4), and the scheduler job
-`REFRESH_MV_COUNTRY_ENA` (last start 2026-09-20 11:00). It also makes a
-self-refreshing MV an **ordering hazard**: it refreshes alone, on its own
-clock, whether or not its parents are current. That is one more route to
-the UNUSABLE state.
+**Measured 2026-09-23** (`../epmc_pipeline/tools/inspect_db.sh` section 12,
+approved):
+- `USER_REFRESH_CHILDREN` is **empty**. No MV in this schema carries a
+  `NEXT` schedule today.
+- `USER_SCHEDULER_JOBS` holds one job, `REFRESH_MV_COUNTRY_ENA`: enabled,
+  repeat interval `SYSDATE + 7`, **42 runs, 0 failures**, last start
+  2026-09-20 11:00, **next run 2026-09-27 11:00**. `JOB_ACTION` is empty,
+  so it most likely runs a named scheduler program; what that program
+  does has not been read.
+- Yet `MV_00_JOIN_COUNTRY_ENA`, the MV its name points to, was last
+  refreshed 2026-02-02. So the job either refreshes something other than
+  these 25 MVs, or no longer refreshes anything.
 
-For the orchestrator:
-- Which MVs carry a `NEXT`, and whether they are BROKEN, is now section 12
-  of `../epmc_pipeline/tools/inspect_db.sh` (`USER_REFRESH_CHILDREN`,
-  `USER_SCHEDULER_JOBS`). Not yet run.
-- Once the orchestrator refreshes in order, the automatic schedules have
-  to go, or they will race it. Oracle's syntax for removing one needs
-  checking against the 19c `ALTER MATERIALIZED VIEW` reference first. One
-  MV per statement, each approved. **Not done, not decided.**
+Consequences:
+- The refreshes on 02-04 and 02-10 that are missing from `MV_REFRESH_LOG`
+  (§2.1, point 4) are **not explained**. Whatever ran them left no
+  schedule behind; a manual refresh is the simplest explanation left.
+- Before the orchestrator goes live, find out what this job runs, then
+  either retire it or make it a stage of the chain. It must not run on its
+  own clock next to an ordered refresh. **Not done, not decided.**
+
+Next read-only check (needs approval):
+
+```sql
+SELECT job_name, job_type, program_name, job_action, schedule_name,
+       last_run_duration
+FROM   user_scheduler_jobs WHERE job_name = 'REFRESH_MV_COUNTRY_ENA';
+SELECT program_name, program_type, program_action, enabled
+FROM   user_scheduler_programs;
+SELECT log_date, status, error#, run_duration, additional_info
+FROM   user_scheduler_job_run_details
+WHERE  job_name = 'REFRESH_MV_COUNTRY_ENA'
+ORDER  BY log_date DESC FETCH FIRST 10 ROWS ONLY;
+```

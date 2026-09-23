@@ -44,7 +44,8 @@ its own - the orchestrator must not race one.
   on instance restart - which would explain the missing IDs 4-20 without any
   deleted rows. Not yet confirmed via `USER_TAB_IDENTITY_COLS`.
 - One scheduler job, `REFRESH_MV_COUNTRY_ENA`: enabled, SCHEDULED, last
-  start 2026-09-20 11:00. See `MV_STATE.md` §5.
+  start 2026-09-20 11:00, repeats `SYSDATE + 7`, 42 runs / 0 failures. No
+  MV carries a `NEXT` schedule. See `MV_STATE.md` §5.
 
 **`REFRESH_ALL_MVS` is not needed now** (user, 2026-09-23). Whether the
 orchestrator reuses, updates or discards it is decided when `refresh.py`
