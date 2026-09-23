@@ -13,9 +13,13 @@ indexes). Chart-*series* SQL is still missing; see §6.
   still hold here.
 - **`inmemory_size` = 200 GB.** An In-Memory column store is already
   allocated; `inmemory_force` is DEFAULT, so only objects marked
-  `INMEMORY` use it. Whether any MV is marked is not yet known (§6).
-  Database In-Memory beyond the free 16 GB Base Level is a paid option:
-  **confirm the licence with the DBA** before relying on it.
+  `INMEMORY` use it. **18 objects already are** (checked 2026-09-23),
+  among them `MV_01_DSI_ALL_PUBLICATIONS`, the other big `MV_00_*` /
+  `MV_01_*`, `PMC_REFERENCES`, `ENA_SEQUENCES` and the `N_*` tables - all
+  priority LOW (NONE for three), compression FOR QUERY LOW/HIGH. So
+  In-Memory is in use and presumably licensed; the DBA should still
+  confirm. Not marked: `MV_01_PROVIDING_TO_Y_COUNTRIES`,
+  `MV_01_USING_FROM_X_COUNTRIES` (page 10) and all `EPMC_*` tables.
 - Partitioning is also a separately licensed EE option. Same question.
 
 ## 2. What the dashboard reads
@@ -101,18 +105,30 @@ those are the same country, so grouping by `a.country` is equivalent.
 Verify on one filter setting by comparing both result sets before
 switching.
 
-### P2. Put the dashboard MV in memory (one DDL, if licensed)
+### P2. Make sure the dashboard MV is actually *in* memory
+
+`MV_01_DSI_ALL_PUBLICATIONS` is already marked `INMEMORY PRIORITY LOW`.
+Marked is not populated: after every refresh the column store must be
+rebuilt, and with 18 objects competing at the same priority it may be
+partly or wholly on disk when users arrive - which would match "slow".
+First read `V$IM_SEGMENTS` (§6): `POPULATE_STATUS` and
+`BYTES_NOT_POPULATED` per object. If the chart MV is not fully
+populated, raise it above the rest:
 
 ```sql
 ALTER MATERIALIZED VIEW mv_01_dsi_all_publications INMEMORY PRIORITY HIGH;
 ```
 
-The In-Memory column store is built for exactly this: full scans with
-filters and aggregates over a few columns. 2.1 GB on disk, typically
-less once columnar-compressed - a small share of the 200 GB allocated. No
-query changes, no refresh changes (the column store is repopulated after
-each refresh). Reversible with `NO INMEMORY`. **Gate: DBA confirms the
-In-Memory licence.**
+and mark page 10's two MVs, which are not in memory at all:
+
+```sql
+ALTER MATERIALIZED VIEW mv_01_providing_to_y_countries INMEMORY PRIORITY HIGH;
+ALTER MATERIALIZED VIEW mv_01_using_from_x_countries   INMEMORY PRIORITY HIGH;
+```
+
+No query or refresh changes; reversible (`PRIORITY LOW` / `NO INMEMORY`).
+The column store suits exactly this: full scans with filters and
+aggregates over a few columns. Needs approval; DBA confirms licence.
 
 ### P3. A slimmer chart MV without `TAXID` (new MV, then repoint charts)
 
@@ -165,6 +181,10 @@ Only three MVs read `N_*`: `MV_PMC_WITH_ANNOTATIONS`,
   (ORA-00942 on 02-02, `MV_STATE.md` §2.1).
 - The switch should read the `EPMC_*` tables, **not**
   `EPMC_V_PMC_REFERENCES_FLAT`, which rebuilds the old wide join.
+- **Draft:** `../epmc_pipeline/src/schema/switch_mvs_to_epmc.sql` rewrites
+  `MV_00_JOIN_ENA_PMC` and `MV_00_JOIN_COUNTRY_PMC` to read `EPMC_*`,
+  via `DROP … PRESERVE TABLE` + `CREATE … ON PREBUILT TABLE` so the
+  containers - and every reader - stay up. Not applied.
 - Numbers will change: the rebuild holds +298,878 publications the
   legacy pull lost (`../epmc_pipeline/docs/FINDINGS.md` §D).
 
@@ -180,11 +200,21 @@ current hash exactly, and the fix be a separate, announced change.
 ## 6. Still to read (read-only, needs approval)
 
 ```sql
--- the real column name of the chart-series source (SERIES_SOURCE does not exist)
-SELECT owner, column_name FROM all_tab_columns
-WHERE  table_name = 'APEX_APPLICATION_PAGE_CHART_S'
-ORDER  BY owner, column_id;
--- which tables / MVs are already INMEMORY
-SELECT table_name, inmemory, inmemory_priority, inmemory_compression
-FROM   user_tables WHERE inmemory = 'ENABLED';
+Done 2026-09-23: the series SQL is in `DATA_SOURCE` (APEX 24.2 and 26.1
+are both installed); the INMEMORY list is in §1. Still to read:
+
+```sql
+-- the chart-series SQL of the dashboard
+SELECT page_id, region_name, series_name, data_source_type,
+       DBMS_LOB.SUBSTR(data_source, 4000, 1) AS source
+FROM   apex_application_page_chart_s
+WHERE  application_id = 1000
+ORDER  BY page_id, region_name, series_seq;
+-- is the In-Memory column store actually populated
+SELECT segment_name, populate_status, inmemory_priority,
+       ROUND(bytes / 1e9, 2) AS gb_on_disk,
+       ROUND(inmemory_size / 1e9, 2) AS gb_in_memory,
+       ROUND(bytes_not_populated / 1e9, 2) AS gb_not_populated
+FROM   v$im_segments ORDER BY bytes DESC;
+```
 ```
