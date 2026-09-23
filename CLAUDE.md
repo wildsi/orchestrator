@@ -121,9 +121,11 @@ behaviour, so that showing your work does not require approval.
 - **MV refresh order.** The `MV_00_*` → `MV_01_*` → `MV_02_*` naming implies a
   layered chain that must refresh bottom-up. **Derive it from
   `user_dependencies`, not from the names.**
-- **The 15 INVALID MVs.** They are broken independently of this work and
-  predate it. Recompiling them is its own step and should happen before the
-  first orchestrated refresh, not inside it.
+- **The 15 INVALID MVs.** Recompiled 2026-09-23, all VALID, no data
+  touched. That exposed **10 of 25 MVs as UNUSABLE** (not a consistent
+  snapshot; possibly empty or partial). Cause not established; the lead is
+  a non-atomic `REFRESH_ALL_MVIEWS`. The derived refresh order is there
+  too. See `docs/MV_STATE.md` before any refresh.
 - **Fast refresh.** All MVs are `DEMAND` + `COMPLETE`, yet an
   `MLOG$_ENA_SEQUENCES` exists and is unused. Worth investigating: a fast
   refresh would change the cost of this project entirely.

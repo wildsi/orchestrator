@@ -25,6 +25,9 @@ Nothing here has been started. Phases 0–2 touch no database.
 - [ ] 1.3 **Derive the true refresh order** from `user_dependencies`
       (read-only) and compare against the `MV_00/01/02` naming. Record any
       disagreement — the names may be wrong.
+      Derived offline 2026-09-23 (3 levels, no cycle; three `MV_00_*` are
+      not level 0, two `MV_*` names are plain tables): `docs/MV_STATE.md` §3.
+      Left unticked until `mv_graph.py` reproduces it from the fixture.
 - [ ] 1.4 **Time one complete refresh** of a large MV with
       `atomic_refresh=TRUE`, to know whether the whole chain fits a window.
       **Needs approval — this writes.**
@@ -56,8 +59,10 @@ Nothing here has been started. Phases 0–2 touch no database.
 
 ## 3. Validate (needs approval per step)
 
-- [ ] 3.1 Recompile the 15 INVALID MVs as a **separate prior step**. Do not
+- [x] 3.1 Recompile the 15 INVALID MVs as a **separate prior step**. Do not
       fold pre-existing breakage into the first orchestrated run.
+      Done 2026-09-23 from `../epmc_pipeline` (its task 4.1); all VALID.
+      Result and the UNUSABLE finding: `docs/MV_STATE.md`.
 - [ ] 3.2 Refresh one leaf MV end to end. Confirm it stays readable
       throughout and that APEX is unaffected.
 - [ ] 3.3 Full chain on a quiet day, watched.
