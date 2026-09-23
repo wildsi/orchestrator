@@ -151,6 +151,44 @@ retired by computing its pie straight from its defining query at
 refresh time - saving ~21 min of refresh (1,288 s on 02-02), 6 GB of disk
 and 3 GB of column store.
 
+**P0 does not reach the charts users filter.** The user's chart is
+"Providing DSI countries based on provider" (series `S_providing_DSI`),
+which filters by date, taxonomy, author role, publication type and the
+treaty dataset; a per-country pie summary drops all of that
+(user, 2026-09-23). `MV_02_PIE_DSI_ORIGIN` serves only the unfiltered
+"Distribution of provision and use" region; drop it if that region is not
+shown.
+
+### P0b. Filter-preserving summary for sequence counts (measured)
+
+The filtered chart counts `COUNT(DISTINCT accession)` per `dsi_country`
+over `MV_01_JOIN_ENA_LEFTJOIN` (64.5M rows). An accession's country,
+submission date, `CODE` and `TAXID` are fixed; only the publication
+type x author role combinations repeat it. So one row per
+`(dsi_country, submission_date, code, in_annex1, role_mask)` with a
+count of accessions - `role_mask` a 6-bit set of the combinations
+(P-F 1, P-R 2, P-S 4, S-F 8, S-R 16, S-S 32; 0 = none) - turns
+`COUNT(DISTINCT)` into `SUM`, and every filter still applies:
+
+```sql
+SELECT dsi_country AS country_of_origin, SUM(n_accessions) AS dsi_contribution
+FROM   mv_02_dsi_provider
+WHERE  submission_date BETWEEN TO_DATE(:DP_G_DATE_FROM, 'YYYY-MM-DD') AND TO_DATE(:DP_G_DATE_TO, 'YYYY-MM-DD')
+AND    InStr(':' || :CB_TAXONOMY || ':', ':' || code || ':') > 0
+AND    (:RB_DATASET = 'All' OR in_annex1 = 1)
+AND    (<no publication/author selected> OR BITAND(role_mask, <selected mask>) > 0)
+GROUP  BY dsi_country ORDER BY dsi_contribution DESC
+```
+
+Exact, because the original keeps an accession if *any* of its rows has
+a selected role *and* a selected type - i.e. its mask shares a bit with
+the selection.
+
+**Measured 2026-09-23** (read-only, 4 min 00 s): 36,152,968 accessions;
+**545,696 summary rows** against 64.5M (~118x fewer); but **2,011
+accessions (0.0056%) have more than one country / date / code / taxid**,
+so would sit in two groups. Being characterised before anything is built.
+
 ### P1. Rewrite page 10's report and its 12 series (APEX edit only, no DDL)
 
 Same result, no cross join: aggregate each MV on its own, keep the
