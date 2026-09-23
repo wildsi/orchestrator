@@ -1,5 +1,12 @@
 # Why the dashboard charts are slow, and what to do about it
 
+> **PARKED 2026-09-23** (user: finish the epmc_pipeline switch-over first,
+> fix the front end another time). Where it stopped: P0b measured, the
+> 2,011 accessions with varying attributes not yet characterised (query
+> ready in the session notes below, §4 P0b). `MV_02_PIE_DSI_ORIGIN` exists,
+> filled, and read by nothing - drop it or use it when this resumes.
+> Nothing in APEX was changed.
+
 Analysis, 2026-09-23. **Nothing changed.** Sources: the read-only check of
 the same day (approved): database version and parameters, the SQL of
 every APEX region reading an MV, and column statistics of the five
