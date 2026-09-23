@@ -84,7 +84,7 @@ Started 2026-09-23 with the refresh stage (2.1-2.3). Phases 0–2 touch no datab
       fold pre-existing breakage into the first orchestrated run.
       Done 2026-09-23 from `../epmc_pipeline` (its task 4.1); all VALID.
       Result and the UNUSABLE finding: `docs/MV_STATE.md`.
-- [ ] 3.2 Refresh one leaf MV end to end. Confirm it stays readable
+- [x] 3.2 Refresh one leaf MV end to end. Confirm it stays readable
       throughout and that APEX is unaffected.
       2026-09-23, approved: `run_refresh.py --execute --only MV_NUM_PUB`,
       run 1. OK in 3.21 s, STALE -> FRESH / VALID. First attempt never
@@ -106,8 +106,8 @@ Started 2026-09-23 with the refresh stage (2.1-2.3). Phases 0–2 touch no datab
       INITIAL/FINAL_NUM_ROWS read 0 / 0 while the MV held its 1 row.
       Replaced by an emptiness probe before and after each refresh.
       Run 3 (approved): OK, has rows 1 -> 1, FRESH / VALID, 2.65 s - the
-      probe works on the real database. Left unticked until APEX is
-      confirmed unaffected.
+      probe works on the real database. APEX confirmed unaffected by the
+      user, 2026-09-23.
 - [ ] 3.3 Full chain on a quiet day, watched.
 - [ ] 3.4 Hand the schedule over; retire the two standalone sbatch triggers.
 
