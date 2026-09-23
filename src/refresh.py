@@ -277,7 +277,8 @@ def execute(steps, dsn, log, slurm_job_id=None, runner=None):
     log(f"run {run_id}: {len(steps)} materialized views, in dependency order")
     outcomes = []
     for index, step in enumerate(steps):
-        log(f"[{step.order_no}/{len(steps)}] level {step.level_no} {step.mv_name} ...")
+        log(f"[{index + 1}/{len(steps)}] order {step.order_no}, level {step.level_no}: "
+            f"{step.mv_name} ...")
         outcome = parse_result(step.mv_name, sql(refresh_block(step, run_id, slurm_job_id)))
         problem = check(outcome)
         if problem:

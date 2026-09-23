@@ -180,3 +180,11 @@ def test_execute_without_a_credential_fails_before_any_sql():
 
     with pytest.raises(ConfigurationError):
         run_refresh.main(["--execute"], env={}, runner=None, out=lambda _: None)
+
+
+def test_progress_counts_within_the_run_not_the_chain():
+    steps = [Step(10, 0, "MV_A")]
+    messages = []
+    refresh.execute(steps, DSN, messages.append, runner=FakeSqlplus())
+    assert any(m.startswith("[1/1] order 10, level 0: MV_A") for m in messages)
+

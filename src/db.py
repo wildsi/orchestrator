@@ -40,6 +40,22 @@ def find_sqlplus():
     )
 
 
+def client_env(sqlplus, base=None):
+    """The environment sqlplus needs: its own directory on LD_LIBRARY_PATH.
+
+    The instant client's sqlplus links libsqlplus.so from the directory it
+    lives in. `module load` sets LD_LIBRARY_PATH; the fallback in
+    find_sqlplus() does not, and sqlplus then dies with "error while loading
+    shared libraries: libsqlplus.so". Prepending is harmless when the
+    module did set it.
+    """
+    env = dict(os.environ if base is None else base)
+    client_dir = os.path.dirname(sqlplus)
+    current = env.get("LD_LIBRARY_PATH", "")
+    env["LD_LIBRARY_PATH"] = client_dir + (os.pathsep + current if current else "")
+    return env
+
+
 def run_sqlplus(sql_text, dsn, runner=subprocess.run, sqlplus=None):
     """Run a script and return its combined output.
 
@@ -58,10 +74,12 @@ def run_sqlplus(sql_text, dsn, runner=subprocess.run, sqlplus=None):
         f"{sql_text}\n"
         "EXIT;\n"
     )
+    sqlplus = sqlplus or find_sqlplus()
     completed = runner(
-        [sqlplus or find_sqlplus(), "-s", "/nolog"],
+        [sqlplus, "-s", "/nolog"],
         input=payload,
         capture_output=True,
         text=True,
+        env=client_env(sqlplus),
     )
     return SqlResult(completed.returncode, (completed.stdout or "") + (completed.stderr or ""))

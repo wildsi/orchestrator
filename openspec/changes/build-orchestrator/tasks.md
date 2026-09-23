@@ -86,6 +86,14 @@ Started 2026-09-23 with the refresh stage (2.1-2.3). Phases 0–2 touch no datab
       Result and the UNUSABLE finding: `docs/MV_STATE.md`.
 - [ ] 3.2 Refresh one leaf MV end to end. Confirm it stays readable
       throughout and that APEX is unaffected.
+      2026-09-23, approved: `run_refresh.py --execute --only MV_NUM_PUB`,
+      run 1. OK in 3.21 s, STALE -> FRESH / VALID. First attempt never
+      reached the database: the fallback sqlplus lacked LD_LIBRARY_PATH
+      (fixed in `db.client_env`, tested). **No refresh statistics were
+      recorded**, so ROWS_BEFORE / ROWS_AFTER are NULL and the row checks
+      were skipped - statistics collection is probably NONE; check
+      `USER_MVREF_STATS_PARAMS`. Left unticked until the log row is read
+      back and APEX is confirmed unaffected.
 - [ ] 3.3 Full chain on a quiet day, watched.
 - [ ] 3.4 Hand the schedule over; retire the two standalone sbatch triggers.
 
