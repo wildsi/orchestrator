@@ -139,7 +139,14 @@ WHERE  percentages > 0.005;
 ```
 
 New names, so nothing breaks; the orchestrator's graph places them one
-level above their source automatically. Later, the 107M-row MV could be
+level above their source automatically.
+
+**Measured on the first one** (`MV_02_PIE_DSI_ORIGIN`, 2026-09-23): filled
+by the orchestrator in 7.52 s; output identical to the live pie query
+(MINUS both ways, no rows); the pie query itself went from **16.65 s to
+0.00 s** (physical reads 1,088,655 -> 0, consistent gets 3,939 -> 29).
+Pages 5 and 18 each carry three such pies, each computing its aggregate
+twice. Later, the 107M-row MV could be
 retired by computing its pie straight from its defining query at
 refresh time - saving ~21 min of refresh (1,288 s on 02-02), 6 GB of disk
 and 3 GB of column store.

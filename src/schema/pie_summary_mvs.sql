@@ -11,6 +11,9 @@
 -- Applied:
 --   2026-09-23 MV_02_PIE_DSI_ORIGIN created (deferred); filled by run 4:
 --              level 1, OK, has rows 0 -> 1, FRESH / VALID, 7.52 s.
+--              Verified identical to the live pie query (MINUS both ways:
+--              no rows). Pie query 16.65 s -> 0.00 s; physical reads
+--              1,088,655 -> 0. Chart SQL in APEX not yet switched.
 -- ---------------------------------------------------------------------------
 
 -- "Providers of all DSI"
