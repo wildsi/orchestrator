@@ -40,7 +40,7 @@ class FakeSqlplus:
                 if "DBMS_MVIEW.REFRESH" in i]
 
 
-def ok_line(log_id=1, before=100, after=100, stale="FRESH", compile_state="VALID"):
+def ok_line(log_id=1, before=1, after=1, stale="FRESH", compile_state="VALID"):
     return f"{refresh.RESULT_SENTINEL}|{log_id}|OK|{before}|{after}|{stale}|{compile_state}||1,5|"
 
 
@@ -85,7 +85,6 @@ def test_a_missing_result_line_is_a_failure_not_a_success():
 
 @pytest.mark.parametrize("line, reason", [
     (ok_line(after=0), "empty after refresh"),
-    (ok_line(before=1000, after=400), "rows fell from 1000 to 400"),
     (ok_line(stale="UNUSABLE"), "staleness after refresh is UNUSABLE"),
     (ok_line(compile_state="NEEDS_COMPILE"), "compile state after refresh is NEEDS_COMPILE"),
 ])
@@ -99,15 +98,18 @@ def test_a_refresh_that_ran_can_still_fail_its_checks(line, reason):
     assert [o.status for o in outcomes[1:]] == ["SKIPPED", "SKIPPED"]
 
 
-def test_missing_refresh_statistics_skip_the_row_checks_but_warn():
-    fake = FakeSqlplus({"MV_A": ok_line(before="", after="")})
-    succeeded, _, messages = run(fake)
-    assert succeeded
-    assert any("no refresh statistics for MV_A" in m for m in messages)
+def test_the_emptiness_probe_runs_before_and_after_the_refresh():
+    """Not USER_MVREF_STATS row counts: they read 0 / 0 on a one-row MV
+    (TYPICAL, COMPLETE refresh, refresh 3705, 2026-09-23)."""
+    block = refresh.refresh_block(STEPS[0], run_id=1)
+    probe = "SELECT COUNT(*) INTO v_{} FROM MV_A WHERE ROWNUM <= 1"
+    assert block.index(probe.format("before")) < block.index("DBMS_MVIEW.REFRESH(")
+    assert block.index("DBMS_MVIEW.REFRESH(") < block.index(probe.format("after"))
+    assert "initial_num_rows" not in block and "final_num_rows" not in block
 
 
-def test_a_row_drop_within_the_ratio_passes():
-    assert refresh.check(Outcome("X", "OK", rows_before=1000, rows_after=600,
+def test_a_non_empty_fresh_valid_refresh_passes():
+    assert refresh.check(Outcome("X", "OK", rows_before=1, rows_after=1,
                                  staleness="FRESH", compile_state="VALID")) is None
 
 

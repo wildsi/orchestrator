@@ -8,8 +8,13 @@ Decisions (CLAUDE.md, docs/MV_STATE.md, docs/REFRESH_LOG.md):
   so no child is rebuilt from a parent that failed - the 02-02 run did
   exactly that. What was refreshed before the failure stays refreshed;
   each of those MVs is consistent with its own inputs.
-- A refresh that "succeeds" can still fail a check: an MV left empty, one
-  that lost more than half its rows, or one not FRESH / VALID afterwards.
+- A refresh that "succeeds" can still fail a check: an MV left empty, or
+  one not FRESH / VALID afterwards.
+- ROWS_BEFORE / ROWS_AFTER hold an emptiness probe, 0 = empty, 1 = has
+  rows - not a count. USER_MVREF_STATS.INITIAL_NUM_ROWS / FINAL_NUM_ROWS
+  were the plan, but at collection level TYPICAL they read 0 / 0 for a
+  COMPLETE refresh of a one-row MV (measured 2026-09-23, refresh 3705), and
+  an exact COUNT(*) on the 100M-row MVs is not affordable per run.
 - Every MV gets a row in MV_REFRESH_LOG, written STARTED *before* the
   refresh, so a job killed mid-refresh leaves a trace instead of a gap.
 
@@ -31,10 +36,6 @@ RUN_ID_SENTINEL = "ORCHRUNID"
 UNFINISHED_SENTINEL = "ORCHUNFINISHED"
 SKIPPED_SENTINEL = "ORCHSKIPPED"
 CHECKED_SENTINEL = "ORCHCHECKED"
-
-# ROWS_AFTER below this fraction of ROWS_BEFORE fails the refresh.
-MIN_ROW_RATIO = 0.5
-
 
 @dataclass
 class Step:
@@ -123,6 +124,9 @@ BEGIN
     SELECT NVL(MAX(refresh_id), 0) INTO v_prev_ref
     FROM   user_mvref_stats WHERE mv_name = '{mv}';
 
+    -- Emptiness probe, reads at most one row (see module docstring).
+    SELECT COUNT(*) INTO v_before FROM {mv} WHERE ROWNUM <= 1;
+
     BEGIN
         DBMS_MVIEW.REFRESH(list => '{mv}', method => 'C', atomic_refresh => TRUE);
     EXCEPTION WHEN OTHERS THEN
@@ -134,19 +138,13 @@ BEGIN
     v_secs := EXTRACT(DAY FROM v_elapsed) * 86400 + EXTRACT(HOUR FROM v_elapsed) * 3600
             + EXTRACT(MINUTE FROM v_elapsed) * 60 + EXTRACT(SECOND FROM v_elapsed);
 
-    -- Row counts from Oracle's own refresh statistics: free, no COUNT(*).
-    -- Absent when statistics collection is NONE; the caller then skips the
-    -- row checks and says so.
-    BEGIN
-        SELECT refresh_id, initial_num_rows, final_num_rows
-        INTO   v_ref_id, v_before, v_after
-        FROM  (SELECT refresh_id, initial_num_rows, final_num_rows
-               FROM   user_mvref_stats
-               WHERE  mv_name = '{mv}' AND refresh_id > v_prev_ref
-               ORDER  BY refresh_id DESC)
-        WHERE ROWNUM = 1;
-    EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
-    END;
+    SELECT COUNT(*) INTO v_after FROM {mv} WHERE ROWNUM <= 1;
+
+    -- Oracle's id for this refresh, joining USER_MVREF_STATS while it is
+    -- retained (400 days). Absent when statistics collection is NONE.
+    SELECT MAX(refresh_id) INTO v_ref_id
+    FROM   user_mvref_stats
+    WHERE  mv_name = '{mv}' AND refresh_id > v_prev_ref;
 
     SELECT staleness, compile_state INTO v_stale, v_compile
     FROM   user_mviews WHERE mview_name = '{mv}';
@@ -227,14 +225,8 @@ def check(outcome):
     """Return why a refresh that ran must still count as failed, or None."""
     if outcome.status != "OK":
         return None
-    if outcome.rows_after is not None:
-        if outcome.rows_after == 0:
-            return "materialized view is empty after refresh"
-        if outcome.rows_before and outcome.rows_after < MIN_ROW_RATIO * outcome.rows_before:
-            return (
-                f"rows fell from {outcome.rows_before} to {outcome.rows_after} "
-                f"(below {MIN_ROW_RATIO:.0%})"
-            )
+    if outcome.rows_after == 0:
+        return "materialized view is empty after refresh"
     if outcome.staleness != "FRESH":
         return f"staleness after refresh is {outcome.staleness}, not FRESH"
     if outcome.compile_state != "VALID":
@@ -285,11 +277,9 @@ def execute(steps, dsn, log, slurm_job_id=None, runner=None):
             outcome.status, outcome.message = "ERROR", "CHECK: " + problem
             if outcome.log_id is not None:
                 sql(check_failed_sql(outcome.log_id, problem))
-        if outcome.rows_after is None and outcome.status == "OK":
-            log(f"  WARNING no refresh statistics for {step.mv_name}; row checks skipped")
         outcomes.append(outcome)
         log(
-            f"  {outcome.status} rows {outcome.rows_before} -> {outcome.rows_after} "
+            f"  {outcome.status} has rows {outcome.rows_before} -> {outcome.rows_after} "
             f"{outcome.staleness}/{outcome.compile_state} {outcome.duration_sec}s"
             + (f" {outcome.message}" if outcome.message else "")
         )

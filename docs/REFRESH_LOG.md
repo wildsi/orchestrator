@@ -65,7 +65,7 @@ because the procedure's 02-02 run refreshed children before parents
 | `START_TIME`, `END_TIME` | TIMESTAMP | exact, instead of a DATE plus a duration |
 | `REFRESH_METHOD` | VARCHAR2(1) | `C` / `F` / `?` |
 | `ATOMIC_REFRESH` | VARCHAR2(1) | `Y` / `N` - the option most likely behind the UNUSABLE MVs, never recorded |
-| `ROWS_BEFORE`, `ROWS_AFTER` | NUMBER | from `USER_MVREF_STATS.INITIAL_NUM_ROWS / FINAL_NUM_ROWS`: free, no `COUNT(*)` on 100M rows |
+| `ROWS_BEFORE`, `ROWS_AFTER` | NUMBER | **emptiness probe, 0 = empty / 1 = has rows** - not a count (see §4 for why) |
 | `STALENESS_AFTER`, `COMPILE_STATE_AFTER` | VARCHAR2(19) | from `USER_MVIEWS` right after the refresh; anything but FRESH / VALID is a failure even when the refresh "succeeded" |
 | `ERROR_CODE` | NUMBER | the ORA number, queryable; `ERROR_MESSAGE` keeps the text |
 | `ORACLE_REFRESH_ID` | NUMBER | joins `USER_MVREF_STATS` / `USER_MVREF_RUN_STATS` while Oracle still keeps them |
@@ -109,9 +109,10 @@ from `03_mv_dependencies.txt`), so nothing in APEX is affected.
 
 ## 3. Checks the orchestrator derives from each row
 
-- `ROWS_AFTER = 0`, or `ROWS_AFTER < 0.5 * ROWS_BEFORE` -> alert, and halt
-  the MVs above it. This is the emptiness question from `MV_STATE.md` §2,
-  answered on every run at no cost.
+- `ROWS_AFTER = 0` -> alert, and halt the MVs above it. This is the
+  emptiness question from `MV_STATE.md` §2, answered on every run by
+  reading at most one row. (A "lost more than half its rows" check was
+  planned and dropped: see §4.)
 - `STALENESS_AFTER <> 'FRESH'` or `COMPILE_STATE_AFTER <> 'VALID'` -> alert.
 - a `STARTED` row with no `END_TIME` from an earlier run -> report it at the
   start of the next run.
@@ -132,6 +133,17 @@ on all of them).
 **Applied 2026-09-23** (approved, one call naming the 25 MVs):
 `USER_MVREF_STATS_PARAMS` now shows TYPICAL / 400 for all 25. Not yet
 seen in action: the next refresh should fill ROWS_BEFORE / ROWS_AFTER.
+
+**It did not give usable row counts.** Run 2 (`--only MV_NUM_PUB`, same
+day) recorded refresh 3705 with `INITIAL_NUM_ROWS = 0` and
+`FINAL_NUM_ROWS = 0`, while the MV held its 1 row (`COUNT(*)` = 1,
+checked). At TYPICAL these columns are not populated for a COMPLETE
+refresh, so the check flagged a healthy refresh as empty - run 2 is in
+the log as ERROR, a false positive. `refresh.py` now probes emptiness
+itself (`COUNT(*) … WHERE ROWNUM <= 1`, before and after the refresh)
+and stores 0 / 1 in `ROWS_BEFORE` / `ROWS_AFTER`. The row-drop check is
+gone: no cheap, trustworthy count exists for the 100M-row MVs. TYPICAL
+collection stays on for `ORACLE_REFRESH_ID` and the 400-day history.
 
 The same call raises the retention from 31 to 400 days, so the next
 incident can still be investigated months later - February's history was

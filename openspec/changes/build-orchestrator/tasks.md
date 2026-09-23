@@ -58,8 +58,8 @@ Started 2026-09-23 with the refresh stage (2.1-2.3). Phases 0–2 touch no datab
       `src/run_refresh.py`: dry run by default (fixture graph, prints every
       statement, no connection); `--execute` reads the graph live;
       `--only MV` for task 3.2. Halts at the first failure and logs the
-      rest SKIPPED. Checks after each refresh: empty, lost >50% of rows,
-      not FRESH, not VALID. `src/schema/extend_mv_refresh_log.sql` applied
+      rest SKIPPED. Checks after each refresh: empty (probe), not FRESH,
+      not VALID. `src/schema/extend_mv_refresh_log.sql` applied
       2026-09-23 (22 columns, index VALID, LOG_ID identity GENERATED ALWAYS). Upstream run ids are left NULL until the
       chain (2.6) can pass them.
 - [ ] 2.4 `src/dump.py` — once 1.1 is answered.
@@ -100,8 +100,13 @@ Started 2026-09-23 with the refresh stage (2.1-2.3). Phases 0–2 touch no datab
       retention 31 - so Oracle records no row counts and the empty /
       lost-rows checks cannot fire until collection is TYPICAL. Set to
       TYPICAL / 400 days for all 25 MVs the same day (approved,
-      `docs/REFRESH_LOG.md` §4). Left unticked until APEX is confirmed
-      unaffected.
+      `docs/REFRESH_LOG.md` §4).
+      Run 2 (approved, same MV): refresh OK and FRESH / VALID, but logged
+      ERROR by the empty check - a false positive: at TYPICAL,
+      INITIAL/FINAL_NUM_ROWS read 0 / 0 while the MV held its 1 row.
+      Replaced by an emptiness probe before and after each refresh.
+      Left unticked until a run with the probe is clean and APEX is
+      confirmed unaffected.
 - [ ] 3.3 Full chain on a quiet day, watched.
 - [ ] 3.4 Hand the schedule over; retire the two standalone sbatch triggers.
 
