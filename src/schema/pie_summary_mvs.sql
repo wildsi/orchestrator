@@ -9,7 +9,8 @@
 -- SQL is switched in APEX, so creating them changes nothing users see.
 --
 -- Applied:
---   2026-09-23 MV_02_PIE_DSI_ORIGIN created (deferred). Not yet filled.
+--   2026-09-23 MV_02_PIE_DSI_ORIGIN created (deferred); filled by run 4:
+--              level 1, OK, has rows 0 -> 1, FRESH / VALID, 7.52 s.
 -- ---------------------------------------------------------------------------
 
 -- "Providers of all DSI"
