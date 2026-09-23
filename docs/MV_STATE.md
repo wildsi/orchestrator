@@ -89,8 +89,9 @@ truncate-first behaviour; this finding is evidence for it.
 
 Columns `LOG_ID, LOG_TIME, MV_NAME, STATUS, ERROR_MESSAGE, DURATION_SEC`.
 28 rows, two runs: 2026-01-30 (IDs 1-3, the three `MV_00_JOIN_*` only) and
-2026-02-02 (IDs 21-45, all 25 MVs). IDs 4-20 are missing, most likely a
-lost identity cache rather than deleted rows. The writer is the stored
+2026-02-02 (IDs 21-45, all 25 MVs). IDs 4-20 are missing; `LOG_ID` is an
+identity column, so most likely a lost identity cache rather than deleted
+rows. The writer is the stored
 procedure `REFRESH_ALL_MVS`. Both are in `REFRESH_LOG.md` §1.
 
 **1. `MV_PMC_WITH_ANNOTATIONS_ALL_AUTHORS` failed**, in 0.02 s:

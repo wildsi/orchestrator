@@ -59,9 +59,8 @@ Started 2026-09-23 with the refresh stage (2.1-2.3). Phases 0–2 touch no datab
       statement, no connection); `--execute` reads the graph live;
       `--only MV` for task 3.2. Halts at the first failure and logs the
       rest SKIPPED. Checks after each refresh: empty, lost >50% of rows,
-      not FRESH, not VALID. Needs `src/schema/extend_mv_refresh_log.sql`
-      applied first (NOT applied); without it `--execute` stops at the first
-      INSERT, before any refresh. Upstream run ids are left NULL until the
+      not FRESH, not VALID. `src/schema/extend_mv_refresh_log.sql` applied
+      2026-09-23 (22 columns, index VALID, LOG_ID identity GENERATED ALWAYS). Upstream run ids are left NULL until the
       chain (2.6) can pass them.
 - [ ] 2.4 `src/dump.py` — once 1.1 is answered.
 - [ ] 2.5 `src/notify.py` — reuse the shape of

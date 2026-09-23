@@ -1,10 +1,11 @@
 -- ---------------------------------------------------------------------------
 -- Extend MV_REFRESH_LOG for the orchestrator's refresh stage.
 --
--- NOT APPLIED. Needs explicit approval, one statement at a time.
+-- APPLIED 2026-09-23, one statement at a time, each approved. Verified:
+-- 22 columns, MV_REFRESH_LOG_RUN_IX VALID, LOG_ID an identity column
+-- GENERATED ALWAYS. Do not re-run: the ADD fails on existing columns.
 -- Design and rationale: docs/REFRESH_LOG.md. src/refresh.py writes these
--- columns; until this is applied, `run_refresh.py --execute` fails at its
--- first INSERT (ORA-00904), before any refresh.
+-- columns.
 --
 -- Safety:
 --   * Nullable columns, no DEFAULT: a dictionary-only change. No row is

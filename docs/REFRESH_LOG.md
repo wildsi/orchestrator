@@ -1,7 +1,7 @@
 # Refresh log: reuse `MV_REFRESH_LOG`, extended
 
-Proposal, 2026-09-23. **Nothing applied.** The DDL below needs approval,
-and one read-only check comes first (§1).
+Proposal, 2026-09-23. **Applied the same day** (§2), after the read-only
+check in §1.
 
 ## Why reuse it
 
@@ -42,7 +42,8 @@ its own - the orchestrator must not race one.
 - `LOG_ID` is most likely an identity column (`ISEQ$$_120604`, next value 61).
   Identity values are cached 20 at a time by default, and a cache is lost
   on instance restart - which would explain the missing IDs 4-20 without any
-  deleted rows. Not yet confirmed via `USER_TAB_IDENTITY_COLS`.
+  deleted rows. Confirmed an identity column (`GENERATED ALWAYS`) via
+  `USER_TAB_IDENTITY_COLS` after the extension.
 - One scheduler job, `REFRESH_MV_COUNTRY_ENA`: enabled, SCHEDULED, last
   start 2026-09-20 11:00, repeats `SYSDATE + 7`, 42 runs / 0 failures. No
   MV carries a `NEXT` schedule. See `MV_STATE.md` §5.
@@ -79,7 +80,8 @@ because the procedure's 02-02 run refreshed children before parents
   from stale input, as on 02-02 (`MV_STATE.md` §2.1, point 2).
 
 ```sql
--- PROPOSED, NOT APPLIED. Per-statement approval; run §1 first.
+-- APPLIED 2026-09-23 (src/schema/extend_mv_refresh_log.sql), one
+-- statement at a time: 22 columns, index VALID.
 ALTER TABLE MV_REFRESH_LOG ADD (
     RUN_ID              NUMBER,
     SLURM_JOB_ID        VARCHAR2(32),

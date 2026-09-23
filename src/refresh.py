@@ -14,8 +14,8 @@ Decisions (CLAUDE.md, docs/MV_STATE.md, docs/REFRESH_LOG.md):
   refresh, so a job killed mid-refresh leaves a trace instead of a gap.
 
 The log columns beyond the original six come from
-src/schema/extend_mv_refresh_log.sql, which is NOT applied. Until it is,
-an --execute run fails at its first INSERT, before any refresh - by design.
+src/schema/extend_mv_refresh_log.sql (applied 2026-09-23). LOG_ID is an
+identity column GENERATED ALWAYS: never supplied, read back via RETURNING.
 """
 
 import re
