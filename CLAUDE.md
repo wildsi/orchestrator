@@ -134,6 +134,11 @@ behaviour, so that showing your work does not require approval.
   fires every 7 days, but its PL/SQL block is empty (runs take 0.01 s). No
   MV carries its own `NEXT` schedule. It does not race this chain;
   dropping it is housekeeping. `docs/MV_STATE.md` §5.
+- **Dashboard performance.** App 1000's charts all scan
+  `MV_01_DSI_ALL_PUBLICATIONS` with unindexable filters, and page 10
+  cross-joins two 5.3M-row MVs on country. Ranked proposals (query
+  rewrite, In-Memory - 200 GB is already allocated, licence to confirm -
+  a slimmer chart MV) in `docs/MV_PERFORMANCE.md`. Nothing applied.
 - **Fast refresh.** All MVs are `DEMAND` + `COMPLETE`, yet an
   `MLOG$_ENA_SEQUENCES` exists and is unused. Worth investigating: a fast
   refresh would change the cost of this project entirely.
