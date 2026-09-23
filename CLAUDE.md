@@ -126,11 +126,10 @@ behaviour, so that showing your work does not require approval.
   snapshot; possibly empty or partial). Cause not established; the lead is
   a non-atomic `REFRESH_ALL_MVIEWS`. The derived refresh order is there
   too. See `docs/MV_STATE.md` before any refresh.
-- **A weekly scheduler job.** `REFRESH_MV_COUNTRY_ENA` runs every 7 days
-  (42 runs, next 2026-09-27 11:00), outside this chain. No MV carries its
-  own `NEXT` schedule. What the job runs is unknown; the MV its name
-  points to has not refreshed since 2026-02-02. Resolve it before the
-  orchestrator goes live: retire it or fold it in. `docs/MV_STATE.md` §5.
+- **A weekly scheduler job that does nothing.** `REFRESH_MV_COUNTRY_ENA`
+  fires every 7 days, but its PL/SQL block is empty (runs take 0.01 s). No
+  MV carries its own `NEXT` schedule. It does not race this chain;
+  dropping it is housekeeping. `docs/MV_STATE.md` §5.
 - **Fast refresh.** All MVs are `DEMAND` + `COMPLETE`, yet an
   `MLOG$_ENA_SEQUENCES` exists and is unused. Worth investigating: a fast
   refresh would change the cost of this project entirely.

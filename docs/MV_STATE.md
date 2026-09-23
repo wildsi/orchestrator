@@ -170,31 +170,22 @@ approved):
   `NEXT` schedule today.
 - `USER_SCHEDULER_JOBS` holds one job, `REFRESH_MV_COUNTRY_ENA`: enabled,
   repeat interval `SYSDATE + 7`, **42 runs, 0 failures**, last start
-  2026-09-20 11:00, **next run 2026-09-27 11:00**. `JOB_ACTION` is empty,
-  so it most likely runs a named scheduler program; what that program
-  does has not been read.
+  2026-09-20 11:00, next run 2026-09-27 11:00.
 - Yet `MV_00_JOIN_COUNTRY_ENA`, the MV its name points to, was last
-  refreshed 2026-02-02. So the job either refreshes something other than
-  these 25 MVs, or no longer refreshes anything.
+  refreshed 2026-02-02. The next check explains why.
+
+**What the job runs (checked 2026-09-23, approved): nothing.** It is a
+`PLSQL_BLOCK` job with an empty `JOB_ACTION`, no program and no named
+schedule; no scheduler programs exist in the schema. Its last run took
+**0.0116 s**, and the four runs still in the history (2026-08-30 to
+09-20) all SUCCEEDED in 0 s. The smallest refresh on record took over a
+second (§2.1), and `MV_00_JOIN_COUNTRY_ENA` itself 57 s. The job is an
+empty shell that still fires weekly - most likely its body was cleared
+while the schedule was left in place.
 
 Consequences:
+- **It does not race the orchestrator.** Retiring it is housekeeping
+  (`DBMS_SCHEDULER.DROP_JOB`, needs approval), not a precondition.
 - The refreshes on 02-04 and 02-10 that are missing from `MV_REFRESH_LOG`
-  (§2.1, point 4) are **not explained**. Whatever ran them left no
-  schedule behind; a manual refresh is the simplest explanation left.
-- Before the orchestrator goes live, find out what this job runs, then
-  either retire it or make it a stage of the chain. It must not run on its
-  own clock next to an ordered refresh. **Not done, not decided.**
-
-Next read-only check (needs approval):
-
-```sql
-SELECT job_name, job_type, program_name, job_action, schedule_name,
-       last_run_duration
-FROM   user_scheduler_jobs WHERE job_name = 'REFRESH_MV_COUNTRY_ENA';
-SELECT program_name, program_type, program_action, enabled
-FROM   user_scheduler_programs;
-SELECT log_date, status, error#, run_duration, additional_info
-FROM   user_scheduler_job_run_details
-WHERE  job_name = 'REFRESH_MV_COUNTRY_ENA'
-ORDER  BY log_date DESC FETCH FIRST 10 ROWS ONLY;
-```
+  (§2.1, point 4) are **not explained** by it. No MV carries a schedule
+  either, so a manual refresh is the simplest explanation left.
