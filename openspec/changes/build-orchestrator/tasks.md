@@ -91,9 +91,16 @@ Started 2026-09-23 with the refresh stage (2.1-2.3). Phases 0–2 touch no datab
       reached the database: the fallback sqlplus lacked LD_LIBRARY_PATH
       (fixed in `db.client_env`, tested). **No refresh statistics were
       recorded**, so ROWS_BEFORE / ROWS_AFTER are NULL and the row checks
-      were skipped - statistics collection is probably NONE; check
-      `USER_MVREF_STATS_PARAMS`. Left unticked until the log row is read
-      back and APEX is confirmed unaffected.
+      were skipped.
+      Read back (approved): LOG_ID 61, status OK, order 10 / level 0,
+      21:02:27 -> 21:02:30, FRESH / VALID - the row is written as designed.
+      LOG_ID 61 is exactly the identity's reported next value, which
+      confirms IDs 4-20 were cache loss, not deletions. MV_NUM_PUB now
+      holds 488,013. `USER_MVREF_STATS_PARAMS`: collection level **NONE**,
+      retention 31 - so Oracle records no row counts and the empty /
+      lost-rows checks cannot fire until collection is TYPICAL (proposed
+      in `docs/REFRESH_LOG.md` §4). Left unticked until APEX is confirmed
+      unaffected.
 - [ ] 3.3 Full chain on a quiet day, watched.
 - [ ] 3.4 Hand the schedule over; retire the two standalone sbatch triggers.
 
