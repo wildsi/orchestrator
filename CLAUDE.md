@@ -60,8 +60,12 @@ are expected to return non-zero on failure — verify that, do not assume it.
 
 ## Repository layout
 
-Only the brief and the plan are tracked; `src/` and `docs/` exist and are
-empty. `openspec/changes/build-orchestrator/` is the plan of record —
+The refresh stage exists (2026-09-23); the rest does not yet.
+`src/mv_graph.py` derives the order, `src/refresh.py` refreshes and logs,
+`src/run_refresh.py` is the entry point (dry run by default),
+`src/schema/extend_mv_refresh_log.sql` is the log extension it needs (NOT
+applied). `docs/` holds the MV findings (`MV_STATE.md`) and the log design
+(`REFRESH_LOG.md`). `openspec/changes/build-orchestrator/` is the plan of record —
 `proposal.md` (why), `design.md` (decisions and rejected alternatives),
 `tasks.md` (ordered work, phases 0–2 touch no database). Keep them current as
 work proceeds; they are also the raw material for the publication.

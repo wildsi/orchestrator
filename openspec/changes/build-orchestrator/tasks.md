@@ -1,6 +1,6 @@
 # Tasks
 
-Nothing here has been started. Phases 0–2 touch no database.
+Started 2026-09-23 with the refresh stage (2.1-2.3). Phases 0–2 touch no database.
 
 ## 0. Orient (read-only, no database)
 
@@ -22,31 +22,47 @@ Nothing here has been started. Phases 0–2 touch no database.
 - [ ] 1.2 **Is fast refresh possible?** An unused `MLOG$_ENA_SEQUENCES`
       exists. Determine whether the MV definitions qualify. This changes the
       cost of the project, so settle it before optimising a complete refresh.
-- [ ] 1.3 **Derive the true refresh order** from `user_dependencies`
+- [x] 1.3 **Derive the true refresh order** from `user_dependencies`
       (read-only) and compare against the `MV_00/01/02` naming. Record any
       disagreement — the names may be wrong.
       Derived offline 2026-09-23 (3 levels, no cycle; three `MV_00_*` are
       not level 0, two `MV_*` names are plain tables): `docs/MV_STATE.md` §3.
-      Left unticked until `mv_graph.py` reproduces it from the fixture.
+      `mv_graph.py` reproduces it from the fixture
+      (`test_levels_match_the_order_derived_by_hand_in_mv_state`).
 - [ ] 1.4 **Time one complete refresh** of a large MV with
       `atomic_refresh=TRUE`, to know whether the whole chain fits a window.
       **Needs approval — this writes.**
 
 ## 2. Build (no database access)
 
-- [ ] 2.1 Scaffold: `pyproject.toml` + uv, copy `legacy_db_env.sh` from
+- [x] 2.1 Scaffold: `pyproject.toml` + uv, copy `legacy_db_env.sh` from
       `../epmc_pipeline` (it resolves credentials *and* locates the Oracle
       client when `module` is absent), `.gitignore`, `.env.example`.
-- [ ] 2.2 `src/mv_graph.py` — build the refresh order by topologically
+      Done 2026-09-23 except `legacy_db_env.sh`: the Python side resolves
+      the DSN (`src/settings.py`, `ORCH_` prefix) and finds sqlplus itself
+      (`src/db.py`). The shell copy comes with the sbatch scripts (2.6).
+- [x] 2.2 `src/mv_graph.py` — build the refresh order by topologically
       sorting `user_dependencies`; fail loudly on a cycle. Unit-test against
       a fixture of the real dependency rows, no database.
-- [ ] 2.3 `src/refresh.py` — `DBMS_MVIEW.REFRESH` per MV in order,
+      Done 2026-09-23. Fixture: `src/tests/fixtures/mv_dependencies_2026-09-23.tsv`
+      (116 rows, 25 MVs, 30 MV-to-MV edges). The test reproduces the
+      three levels in `docs/MV_STATE.md` §3 exactly.
+- [x] 2.3 `src/refresh.py` — `DBMS_MVIEW.REFRESH` per MV in order,
       `atomic_refresh=TRUE`, per-MV timing and outcome captured. Fake
       `subprocess.run` in tests.
       Outcome goes into the existing `MV_REFRESH_LOG`, extended as in
       `docs/REFRESH_LOG.md` (STARTED/SKIPPED rows, rows before/after from
       `USER_MVREF_STATS`, staleness after). Its §1 read-only check and
       the ALTER need approval first.
+      Done 2026-09-23 as code, never run against the database. Entry point
+      `src/run_refresh.py`: dry run by default (fixture graph, prints every
+      statement, no connection); `--execute` reads the graph live;
+      `--only MV` for task 3.2. Halts at the first failure and logs the
+      rest SKIPPED. Checks after each refresh: empty, lost >50% of rows,
+      not FRESH, not VALID. Needs `src/schema/extend_mv_refresh_log.sql`
+      applied first (NOT applied); without it `--execute` stops at the first
+      INSERT, before any refresh. Upstream run ids are left NULL until the
+      chain (2.6) can pass them.
 - [ ] 2.4 `src/dump.py` — once 1.1 is answered.
 - [ ] 2.5 `src/notify.py` — reuse the shape of
       `../epmc_pipeline/src/notifications.py`: two reports, two recipient
@@ -60,6 +76,8 @@ Nothing here has been started. Phases 0–2 touch no database.
       ```
 - [ ] 2.7 Verify: `uv run pytest`, `uv run ruff check src`, and a dry-run
       mode that prints every statement it would issue without issuing any.
+      Refresh stage so far: 31 tests pass, ruff clean, dry run verified to
+      start no sqlplus (`test_the_dry_run_sends_nothing_and_needs_no_credential`).
 
 ## 3. Validate (needs approval per step)
 

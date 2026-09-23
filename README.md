@@ -4,8 +4,10 @@ Runs the weekly warehouse update end to end: both harvest pipelines, then a
 database dump, then a materialized-view refresh — and stops at the first
 failure rather than publishing a half-updated picture.
 
-**Status: not started.** This repository currently contains the brief, the
-design decisions already taken, and the open questions. See
+**Status: refresh stage written, not yet run against the database.**
+`uv run python src/run_refresh.py` prints the ordered plan and every
+statement without connecting. The harvest, dump and Slurm chain stages
+are not started. See
 `openspec/changes/build-orchestrator/` for the plan and
 `CLAUDE.md` for the working rules.
 

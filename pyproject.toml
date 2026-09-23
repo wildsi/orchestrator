@@ -1,0 +1,30 @@
+[project]
+name = "wildsi-orchestrator"
+version = "0.1.0"
+description = "Weekly WiLDSi warehouse chain: ENA + EPMC harvests, dump, ordered materialized-view refresh"
+requires-python = ">=3.9"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["src/tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "A", "SIM"]
+
+[tool.ruff.lint.isort]
+# src/ is a flat module directory on pythonpath, not an installed package.
+known-first-party = ["db", "mv_graph", "refresh", "run_refresh", "settings", "tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "ruff>=0.16.7",
+]
