@@ -35,6 +35,24 @@ SELECT job_name, enabled, state, last_start_date FROM user_scheduler_jobs;
 The scheduler query also answers whether a job is still refreshing MVs on
 its own - the orchestrator must not race one.
 
+**Result (run 2026-09-23, approved):**
+- The writer is the stored procedure `REFRESH_ALL_MVS` (lines 15 and 30),
+  and it inserts **with a column list**, so the nullable columns in §2 do
+  not break it. No trigger on the table.
+- `LOG_ID` is most likely an identity column (`ISEQ$$_120604`, next value 61).
+  Identity values are cached 20 at a time by default, and a cache is lost
+  on instance restart - which would explain the missing IDs 4-20 without any
+  deleted rows. Not yet confirmed via `USER_TAB_IDENTITY_COLS`.
+- One scheduler job, `REFRESH_MV_COUNTRY_ENA`: enabled, SCHEDULED, last
+  start 2026-09-20 11:00. See `MV_STATE.md` §5.
+
+**`REFRESH_ALL_MVS` is not needed now** (user, 2026-09-23). Whether the
+orchestrator reuses, updates or discards it is decided when `refresh.py`
+is built. The default is to discard it in favour of task 2.3's per-MV
+`DBMS_MVIEW.REFRESH` in topological order with `atomic_refresh=TRUE`,
+because the procedure's 02-02 run refreshed children before parents
+(`MV_STATE.md` §2.1). The table outlives the procedure either way.
+
 ## 2. Added columns (all nullable, so existing rows and writers are unaffected)
 
 | column | type | closes the gap |

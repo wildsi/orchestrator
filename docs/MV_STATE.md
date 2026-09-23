@@ -78,10 +78,9 @@ truncate-first behaviour; this finding is evidence for it.
 
 Columns `LOG_ID, LOG_TIME, MV_NAME, STATUS, ERROR_MESSAGE, DURATION_SEC`.
 28 rows, two runs: 2026-01-30 (IDs 1-3, the three `MV_00_JOIN_*` only) and
-2026-02-02 (IDs 21-45, all 25 MVs). IDs 4-20 are missing - rows deleted,
-or a run that failed before logging; the table cannot say which. Whatever
-writes it is in the database, not in `Scripts/` (only the ENA
-`REFRESH_ALL_MVIEWS` was found there).
+2026-02-02 (IDs 21-45, all 25 MVs). IDs 4-20 are missing, most likely a
+lost identity cache rather than deleted rows. The writer is the stored
+procedure `REFRESH_ALL_MVS`. Both are in `REFRESH_LOG.md` §1.
 
 **1. `MV_PMC_WITH_ANNOTATIONS_ALL_AUTHORS` failed**, in 0.02 s:
 `ORA-00942: table or view does not exist`. Its staleness is still IMPORT
@@ -121,8 +120,9 @@ MVs last refreshed 2026-02-04 15:09 (all in the same minute despite
 multi-minute durations), MV_01_PROVIDING_TO_Y_COUNTRIES at 02-04 15:02,
 MV_01_USING_FROM_X_COUNTRIES at 02-10 08:35, and the 15 MVs went
 NEEDS_COMPILE on 02-08 13:48-13:51. None of that is in this table, so at
-least one other mechanism refreshed (or altered) MVs after 02-02. Check 2
-above (emptiness probe) is still needed.
+least one other mechanism refreshed (or altered) MVs after 02-02. The
+refreshes are explained by the self-scheduled MVs in §5; the 02-08
+invalidation is not. Check 2 above (emptiness probe) is still needed.
 
 ## 3. Refresh order (answers task 1.3)
 
@@ -157,3 +157,27 @@ fixture; it is a ready-made expected value for its test.
 values. Every MV is `REFRESH COMPLETE ON DEMAND`, so no refresh ever
 consumes or purges it; it grows with every ENA load. Relevant to task 1.2:
 either a fast refresh starts using it, or it is dead weight. Not touched.
+
+## 5. Some MVs refresh themselves every 7 days
+
+Per the user (2026-09-23): some MVs were created with
+`REFRESH … NEXT SYSDATE + 7`. Oracle gives such an MV a job and refreshes
+it automatically every 7 days, **outside any pipeline or orchestrator**;
+`REFRESH_MODE` still reads DEMAND, which is why the inventory never showed
+it. After 16 failed retries Oracle marks it BROKEN and stops trying.
+
+This explains the refreshes on 02-04 and 02-10 that are not in
+`MV_REFRESH_LOG` (§2.1, point 4), and the scheduler job
+`REFRESH_MV_COUNTRY_ENA` (last start 2026-09-20 11:00). It also makes a
+self-refreshing MV an **ordering hazard**: it refreshes alone, on its own
+clock, whether or not its parents are current. That is one more route to
+the UNUSABLE state.
+
+For the orchestrator:
+- Which MVs carry a `NEXT`, and whether they are BROKEN, is now section 12
+  of `../epmc_pipeline/tools/inspect_db.sh` (`USER_REFRESH_CHILDREN`,
+  `USER_SCHEDULER_JOBS`). Not yet run.
+- Once the orchestrator refreshes in order, the automatic schedules have
+  to go, or they will race it. Oracle's syntax for removing one needs
+  checking against the 19c `ALTER MATERIALIZED VIEW` reference first. One
+  MV per statement, each approved. **Not done, not decided.**

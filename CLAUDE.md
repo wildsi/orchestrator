@@ -126,6 +126,10 @@ behaviour, so that showing your work does not require approval.
   snapshot; possibly empty or partial). Cause not established; the lead is
   a non-atomic `REFRESH_ALL_MVIEWS`. The derived refresh order is there
   too. See `docs/MV_STATE.md` before any refresh.
+- **Self-refreshing MVs.** Some MVs carry `REFRESH NEXT SYSDATE + 7` and
+  refresh themselves weekly, outside this chain (a scheduler job last ran
+  2026-09-20). They must be taken off automatic refresh before the
+  orchestrator runs, or they race it. `docs/MV_STATE.md` §5.
 - **Fast refresh.** All MVs are `DEMAND` + `COMPLETE`, yet an
   `MLOG$_ENA_SEQUENCES` exists and is unused. Worth investigating: a fast
   refresh would change the cost of this project entirely.
