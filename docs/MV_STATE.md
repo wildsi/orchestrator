@@ -202,3 +202,38 @@ Consequences:
 - The refreshes on 02-04 and 02-10 that are missing from `MV_REFRESH_LOG`
   (§2.1, point 4) are **not explained** by it. No MV carries a schedule
   either, so a manual refresh is the simplest explanation left.
+
+## 6. Refresh mode per MV, learned in the EPMC switch-over (2026-09-24)
+
+Full account: `../epmc_pipeline/docs/FINDINGS.md` section E; per-run rows
+in `MV_REFRESH_LOG`, runs 5-14.
+
+- **Large MVs refresh non-atomically, small ones atomically.** The atomic
+  refresh of `MV_00_JOIN_ENA_PMC` (66M rows) failed with ORA-04030 after
+  2 h and rolled back for 2.2 h; non-atomic it took 178 s. Non-atomic
+  empties the MV while it runs, so it needs `--only` and a decision: either
+  nothing reads that MV directly (checked with
+  `../epmc_pipeline/tools/apex_readers_check.sql`), or its charts may go
+  blank for the duration.
+- **Always cap parallelism** (`--parallel 4`). The containers and
+  `ENA_SEQUENCES` are `DEGREE DEFAULT`, which otherwise gives each refresh
+  DOP 32, the whole instance.
+- **Gather statistics after an atomic refresh of a master** that later
+  refreshes read; the atomic path leaves the old row counts.
+
+What that means for the chain, measured on this run:
+
+| MV | direct APEX reader | mode | last duration |
+|---|---|---|---|
+| MV_00_JOIN_ENA_PMC | none | non-atomic | 178 s |
+| MV_00_JOIN_COUNTRY_PMC | "DSI user locations" | atomic | 258 s |
+| MV_01_IN_COUNTRY_USE, MV_01_PROVIDING_TO_Y_COUNTRIES, MV_01_USING_FROM_X_COUNTRIES | charts | atomic | 195-361 s |
+| MV_00_JOIN_PMC_LEFTJOIN | charts | atomic | 3,574 s |
+| MV_01_DSI_ALL_PUBLICATIONS | charts | non-atomic (2.4 h blank) | 8,691 s |
+| MV_01_JOIN_ENA_LEFTJOIN | charts | non-atomic (3.0 h blank) | 10,799 s |
+| MV_01_JOIN_ENA_LEFTJOIN_LIT_COUNTRY | charts | non-atomic, rewritten query | 972 s |
+
+The whole-chain run (`run_refresh.py --execute` with no `--only`) is still
+atomic for every MV and so is **not** safe for this chain as it stands.
+Before it is scheduled, the refresh mode belongs in the per-MV plan rather
+than on the command line - an orchestrator task, not yet written.
