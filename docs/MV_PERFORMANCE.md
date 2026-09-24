@@ -6,7 +6,8 @@
 > step: group `MV_00_JOIN_COUNTRY_ENA` by accession `HAVING COUNT(*) > 1`
 > and see which of country / date / code / taxid differ (§4 P0b). `MV_02_PIE_DSI_ORIGIN` exists,
 > filled, and read by nothing - drop it or use it when this resumes.
-> Nothing in APEX was changed.
+> Nothing in APEX was changed. Also parked, 2026-09-24: P6 (partition
+> instead of split) and P7 (BioProject fan-out), end of §5.
 
 Analysis, 2026-09-23. **Nothing changed.** Sources: the read-only check of
 the same day (approved): database version and parameters, the SQL of
@@ -319,6 +320,37 @@ effectively `last_name,first_name`, and "total authors" merges namesakes.
 `SUBSTR(affiliation, 1, 3500)` was presumably meant; fixing it changes
 every author count on the dashboard. The switch-over should reproduce the
 current hash exactly, and the fix be a separate, announced change.
+
+### Parked 2026-09-24, after the switch holds
+
+Both came out of the first refresh of the switched `MV_00_JOIN_ENA_PMC`
+failing with ORA-04030 (`../epmc_pipeline/src/schema/switch_mvs_to_epmc.sql`,
+step 5 log). Decide after the switch-over is complete.
+
+**P6. List-partition the chart MVs on the filter columns, instead of
+splitting them.** The charts filter on author role (F / S / R) and
+literature type (P / S). One MV per combination was considered and
+rejected: 6 combinations, times every level-2 reader; "all" or "F + S"
+filters would need a `UNION ALL` across MVs or dynamic SQL in each of the
+55 chart series; and it does not reduce the rows to produce (rows of
+different types are never UNION duplicates, and S is ~85M of the ~100M).
+List partitioning on `author_role` / `literature_cite_type` keeps one MV,
+one refresh, no APEX change, and gives the same partition pruning when a
+chart filters. `MV_00_JOIN_ENA_PMC` already has 2 partitions; its key is
+not yet checked (`user_part_key_columns`). Would be applied per MV via
+the same `DROP … PRESERVE TABLE` / repartition / `ON PREBUILT TABLE`
+route, one approved step at a time.
+
+**P7. Should a BioProject citation count for every sequence of the
+project?** A domain decision, not a tuning one. Today an annotation of a
+BioProject joins the publication to all its sequences: 83.1M of the ~100M
+pre-dedup rows of `MV_00_JOIN_ENA_PMC`, of which one project,
+PRJEB37886 (2,747,572 sequences x 21 publications), is 57.7M. That share
+grows with every sequence added to a cited project and every new citation
+of it, so it is what drives the table's growth. Alternatives to weigh: count
+the project once (a project-level row), cap or flag portal-scale projects,
+or keep it and accept the growth. Any change moves the dashboard's DSI
+counts, so it is announced, like the `author_sha256` fix above.
 
 ## 6. Checks done
 
