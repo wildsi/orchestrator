@@ -7,6 +7,13 @@ printed instead of sent.
     uv run python src/run_refresh.py                      # dry run, full chain
     uv run python src/run_refresh.py --only MV_NUM_PUB    # dry run, one MV
     uv run python src/run_refresh.py --execute            # real run - approval
+    uv run python src/run_refresh.py --only MV_00_JOIN_ENA_PMC --non-atomic --parallel 4
+
+--non-atomic truncates and reloads instead of DELETE + INSERT in one
+transaction: no undo, no rollback, but the MV is empty while it runs. So it
+is refused without --only - it is a per-MV decision, made after checking
+that nothing reads that MV directly (tools/apex_readers_check.sql in
+epmc_pipeline). --parallel N caps the refresh session's parallelism.
 
 --execute reads the graph live from user_dependencies, so it refreshes what
 the database holds, not what the fixture remembers.
@@ -30,9 +37,18 @@ def parse_args(argv=None):
                         help="actually refresh (default: print the plan and SQL only)")
     parser.add_argument("--only", metavar="MV",
                         help="refresh this one MV instead of the whole chain")
+    parser.add_argument("--non-atomic", action="store_true",
+                        help="truncate and reload (MV empty meanwhile); requires --only")
+    parser.add_argument("--parallel", type=int, metavar="N",
+                        help="cap the refresh session's parallelism at N (1-32)")
     parser.add_argument("--deps-file", default=DEFAULT_FIXTURE,
                         help="dependency fixture for a dry run (ignored with --execute)")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.non_atomic and not args.only:
+        parser.error("--non-atomic needs --only: it empties the MV while it runs")
+    if args.parallel is not None and not 1 <= args.parallel <= 32:
+        parser.error("--parallel must be between 1 and 32")
+    return args
 
 
 def live_graph(dsn, runner=None):
@@ -78,10 +94,12 @@ def main(argv=None, env=None, runner=None, out=print):
 
     if not args.execute:
         out("\n-- DRY RUN: the statements --execute would send, in order. None sent.")
-        out(refresh.plan_sql(steps, settings.slurm_job_id))
+        out(refresh.plan_sql(steps, settings.slurm_job_id,
+                             atomic=not args.non_atomic, parallel=args.parallel))
         return 0
 
-    succeeded, _ = refresh.execute(steps, dsn, out, settings.slurm_job_id, runner)
+    succeeded, _ = refresh.execute(steps, dsn, out, settings.slurm_job_id, runner,
+                                   atomic=not args.non_atomic, parallel=args.parallel)
     return 0 if succeeded else 1
 
 

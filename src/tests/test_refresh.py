@@ -190,3 +190,53 @@ def test_progress_counts_within_the_run_not_the_chain():
     refresh.execute(steps, DSN, messages.append, runner=FakeSqlplus())
     assert any(m.startswith("[1/1] order 10, level 0: MV_A") for m in messages)
 
+
+
+def test_non_atomic_truncates_and_is_logged_as_such():
+    block = refresh.refresh_block(STEPS[0], run_id=1, atomic=False)
+    assert "method => 'C', atomic_refresh => FALSE" in block
+    assert "v_start, 'C', 'N'" in block
+
+
+def test_the_parallel_cap_is_set_in_the_session_before_the_refresh():
+    block = refresh.refresh_block(STEPS[0], run_id=1, parallel=4)
+    query = "ALTER SESSION FORCE PARALLEL QUERY PARALLEL 4"
+    dml = "ALTER SESSION FORCE PARALLEL DML PARALLEL 4"
+    assert block.index(query) < block.index("DBMS_MVIEW.REFRESH(")
+    assert block.index(dml) < block.index("DBMS_MVIEW.REFRESH(")
+
+
+def test_no_parallel_cap_by_default():
+    assert "FORCE PARALLEL" not in refresh.refresh_block(STEPS[0], run_id=1)
+
+
+@pytest.mark.parametrize("bad", [0, 33, -1])
+def test_a_parallel_cap_outside_1_to_32_is_refused(bad):
+    with pytest.raises(ValueError):
+        refresh.refresh_block(STEPS[0], run_id=1, parallel=bad)
+
+
+def test_execute_passes_non_atomic_and_parallel_to_every_block_and_skip():
+    error = f"{refresh.RESULT_SENTINEL}|2|ERROR||||VALID|-4030|1|ORA-04030"
+    fake = FakeSqlplus({"MV_B": error})
+    messages = []
+    refresh.execute(STEPS, DSN, messages.append, runner=fake, atomic=False, parallel=4)
+    blocks = [i for _, i in fake.calls if "DBMS_MVIEW.REFRESH" in i]
+    assert all("atomic_refresh => FALSE" in b and "PARALLEL 4'" in b for b in blocks)
+    skip_script = next(i for _, i in fake.calls if "'SKIPPED'" in i)
+    assert "'C', 'N'," in skip_script
+    assert any("NON-ATOMIC, parallel 4" in m for m in messages)
+
+
+def test_non_atomic_is_refused_for_the_whole_chain():
+    with pytest.raises(SystemExit):
+        run_refresh.main(["--non-atomic"], env={}, out=lambda _: None)
+
+
+def test_the_dry_run_shows_non_atomic_and_the_cap_for_one_mv():
+    printed = []
+    run_refresh.main(["--only", "MV_00_JOIN_ENA_PMC", "--non-atomic", "--parallel", "4"],
+                     env={}, out=printed.append)
+    text = "\n".join(printed)
+    assert "list => 'MV_00_JOIN_ENA_PMC', method => 'C', atomic_refresh => FALSE" in text
+    assert "FORCE PARALLEL DML PARALLEL 4" in text

@@ -1,8 +1,18 @@
 """Refresh the materialized views one at a time, in dependency order.
 
 Decisions (CLAUDE.md, docs/MV_STATE.md, docs/REFRESH_LOG.md):
-- One DBMS_MVIEW.REFRESH per MV, COMPLETE, atomic_refresh=TRUE, so every MV
-  stays readable throughout; FALSE truncates first.
+- One DBMS_MVIEW.REFRESH per MV, COMPLETE, atomic_refresh=TRUE by default,
+  so every MV stays readable throughout. FALSE truncates first and inserts
+  direct-path: no undo for the old rows and no rollback to wait for, but the
+  MV is empty while it runs. Only for an MV nothing reads directly - chosen
+  per run (--non-atomic, with --only), never for the whole chain. Why:
+  MV_00_JOIN_ENA_PMC's atomic refresh (66M rows) failed with ORA-04030 after
+  2 h and then spent 2.2 h rolling back ~20 GB of undo (2026-09-24).
+- Optionally a cap on parallelism (--parallel N): ALTER SESSION FORCE
+  PARALLEL QUERY / DML PARALLEL N in the refresh's own session, overriding
+  DEGREE DEFAULT on the tables, which otherwise gives every full scan all 32
+  PX servers of the instance. Each MV runs in its own sqlplus session, so
+  the setting ends with it.
 - Parents before children (mv_graph.refresh_order).
 - Halt at the first failure. Every MV not yet refreshed is logged SKIPPED,
   so no child is rebuilt from a parent that failed - the 02-02 run did
@@ -89,7 +99,25 @@ WHERE  status = 'STARTED' AND end_time IS NULL;
 """
 
 
-def refresh_block(step, run_id, slurm_job_id=None):
+def _parallel(parallel):
+    if parallel is None:
+        return None
+    parallel = int(parallel)
+    if not 1 <= parallel <= 32:
+        raise ValueError(f"parallel must be 1..32, got {parallel}")
+    return parallel
+
+
+def _session_setup(parallel):
+    if parallel is None:
+        return ""
+    return (
+        f"    EXECUTE IMMEDIATE 'ALTER SESSION FORCE PARALLEL QUERY PARALLEL {parallel}';\n"
+        f"    EXECUTE IMMEDIATE 'ALTER SESSION FORCE PARALLEL DML PARALLEL {parallel}';\n"
+    )
+
+
+def refresh_block(step, run_id, slurm_job_id=None, atomic=True, parallel=None):
     """The PL/SQL for one MV: log STARTED, refresh, measure, log outcome.
 
     The refresh's own error is caught so the row is always completed; the
@@ -97,6 +125,8 @@ def refresh_block(step, run_id, slurm_job_id=None):
     dies prints none, and the caller treats that as failure.
     """
     mv = _name(step.mv_name)
+    parallel = _parallel(parallel)
+    atomic_sql, atomic_flag = ("TRUE", "Y") if atomic else ("FALSE", "N")
     return f"""
 DECLARE
     v_log_id    NUMBER;
@@ -117,10 +147,10 @@ BEGIN
         start_time, refresh_method, atomic_refresh
     ) VALUES (
         SYSDATE, '{mv}', 'STARTED', {_run_id(run_id)}, {_literal(slurm_job_id)},
-        {int(step.order_no)}, {int(step.level_no)}, v_start, 'C', 'Y'
+        {int(step.order_no)}, {int(step.level_no)}, v_start, 'C', '{atomic_flag}'
     ) RETURNING log_id INTO v_log_id;
     COMMIT;
-
+{_session_setup(parallel)}
     SELECT NVL(MAX(refresh_id), 0) INTO v_prev_ref
     FROM   user_mvref_stats WHERE mv_name = '{mv}';
 
@@ -128,7 +158,7 @@ BEGIN
     SELECT COUNT(*) INTO v_before FROM {mv} WHERE ROWNUM <= 1;
 
     BEGIN
-        DBMS_MVIEW.REFRESH(list => '{mv}', method => 'C', atomic_refresh => TRUE);
+        DBMS_MVIEW.REFRESH(list => '{mv}', method => 'C', atomic_refresh => {atomic_sql});
     EXCEPTION WHEN OTHERS THEN
         v_code := SQLCODE;
         v_msg  := SUBSTR(REPLACE(REPLACE(SQLERRM, CHR(10), ' '), '|', '/'), 1, 4000);
@@ -179,14 +209,15 @@ SELECT '{CHECKED_SENTINEL}|' || {int(log_id)} FROM dual;
 """
 
 
-def skip_sql(steps, run_id, reason, slurm_job_id=None):
+def skip_sql(steps, run_id, reason, slurm_job_id=None, atomic=True):
+    flag = "Y" if atomic else "N"
     inserts = "\n".join(
         f"""INSERT INTO mv_refresh_log (
     log_time, mv_name, status, run_id, slurm_job_id, order_no, level_no,
     refresh_method, atomic_refresh, error_message
 ) VALUES (
     SYSDATE, '{_name(s.mv_name)}', 'SKIPPED', {int(run_id)}, {_literal(slurm_job_id)},
-    {int(s.order_no)}, {int(s.level_no)}, 'C', 'Y', SUBSTR({_literal(reason)}, 1, 4000)
+    {int(s.order_no)}, {int(s.level_no)}, 'C', '{flag}', SUBSTR({_literal(reason)}, 1, 4000)
 );"""
         for s in steps
     )
@@ -241,15 +272,16 @@ def _scalar(lines, sentinel):
     return None
 
 
-def plan_sql(steps, slurm_job_id=None):
+def plan_sql(steps, slurm_job_id=None, atomic=True, parallel=None):
     """Everything --execute would send, in order, with RUN_ID left symbolic."""
     parts = [NEXT_RUN_ID_SQL, UNFINISHED_SQL]
-    parts += [refresh_block(step, run_id=None, slurm_job_id=slurm_job_id) for step in steps]
+    parts += [refresh_block(step, None, slurm_job_id, atomic, parallel) for step in steps]
     return "\n".join(parts)
 
 
-def execute(steps, dsn, log, slurm_job_id=None, runner=None):
+def execute(steps, dsn, log, slurm_job_id=None, runner=None, atomic=True, parallel=None):
     """Refresh `steps` in order; return (succeeded, outcomes)."""
+    parallel = _parallel(parallel)
     kwargs = {} if runner is None else {"runner": runner}
 
     def sql(text):
@@ -266,12 +298,15 @@ def execute(steps, dsn, log, slurm_job_id=None, runner=None):
             _, prev_run, mv, started = line.split("|", 3)
             log(f"WARNING run {prev_run} left {mv} STARTED at {started} and never finished")
 
-    log(f"run {run_id}: {len(steps)} materialized views, in dependency order")
+    log(f"run {run_id}: {len(steps)} materialized views, in dependency order, "
+        f"{'atomic' if atomic else 'NON-ATOMIC'}, "
+        f"parallel {'as the tables declare' if parallel is None else parallel}")
     outcomes = []
     for index, step in enumerate(steps):
         log(f"[{index + 1}/{len(steps)}] order {step.order_no}, level {step.level_no}: "
             f"{step.mv_name} ...")
-        outcome = parse_result(step.mv_name, sql(refresh_block(step, run_id, slurm_job_id)))
+        outcome = parse_result(step.mv_name, sql(refresh_block(step, run_id, slurm_job_id,
+                                                           atomic, parallel)))
         problem = check(outcome)
         if problem:
             outcome.status, outcome.message = "ERROR", "CHECK: " + problem
@@ -287,7 +322,7 @@ def execute(steps, dsn, log, slurm_job_id=None, runner=None):
             rest = steps[index + 1:]
             if rest:
                 reason = f"halted: {step.mv_name} failed in run {run_id}"
-                done = _scalar(sql(skip_sql(rest, run_id, reason, slurm_job_id)),
+                done = _scalar(sql(skip_sql(rest, run_id, reason, slurm_job_id, atomic)),
                                SKIPPED_SENTINEL)
                 if done != str(len(rest)):
                     log(f"ERROR could not log the {len(rest)} skipped MVs as SKIPPED")
